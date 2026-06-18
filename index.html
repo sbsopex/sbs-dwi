@@ -359,6 +359,18 @@
       box-shadow: var(--shadow);
     }
     .modal h3 { margin: 0 0 16px; color: var(--navy); }
+    .modal-text { margin: -6px 0 12px; color: var(--muted); line-height: 1.45; }
+    .confirm-number {
+      margin: 10px 0 18px;
+      padding: 14px;
+      border-radius: 14px;
+      background: var(--yellow-soft);
+      color: var(--red);
+      font-size: 24px;
+      font-weight: 900;
+      letter-spacing: .04em;
+      border: 1px solid rgba(17, 28, 78, .15);
+    }
     .modal-actions { display: grid; gap: 10px; }
 
     .toast {
@@ -468,6 +480,9 @@
     let route = { page: "login", id: null, search: "" };
     let currentPhoto = null;
     let validatingEventId = null;
+    let pendingContainerPayload = null;
+    let isSubmitting = false;
+    let isValidating = false;
     let state = loadLocalState();
 
     document.addEventListener("DOMContentLoaded", init);
@@ -518,15 +533,15 @@
     function cleanupHistory(shouldPersist = true) {
       const cutoff = Date.now() - CONFIG.HISTORY_DAYS * 24 * 60 * 60 * 1000;
       const before = state.events.length;
-      const expiredContainers = new Set();
-      state.events.forEach(ev => {
-        if (ev.type !== "OUT") return;
+      state.events = state.events.filter(ev => {
+        if (ev.type !== "OUT") return true;
         const dateMs = new Date(ev.date).getTime();
-        if (Number.isFinite(dateMs) && dateMs < cutoff) expiredContainers.add(norm(ev.container));
+        if (!Number.isFinite(dateMs)) return true;
+        if (dateMs >= cutoff) return true;
+        const container = norm(ev.container);
+        state.events = state.events.filter(inner => norm(inner.container) !== container);
+        return false;
       });
-      if (expiredContainers.size) {
-        state.events = state.events.filter(ev => !expiredContainers.has(norm(ev.container)));
-      }
       if (shouldPersist && before !== state.events.length) localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     }
 
@@ -706,7 +721,7 @@
               <label>PHOTO</label>
               <input id="photo" class="input" type="file" accept="image/*" onchange="handlePhoto(this.files?.[0])" />
             </div>
-            <button class="btn green full" type="submit">SUBMIT</button>
+            <button id="submitInBtn" class="btn green full" type="submit">SUBMIT</button>
           </form>
           <div>
             <div class="preview-box" id="photoPreview">Photo Preview</div>
@@ -718,15 +733,63 @@
 
     async function submitContainerIn(event) {
       event.preventDefault();
+      if (isSubmitting) return;
+
       const payload = collectForm("IN");
       if (!payload.container) return toast("No. Container wajib diisi.");
+
+      if (hasActiveContainer(payload.container)) {
+        return toast(`Container ${payload.container} masih aktif di Stacking, data tidak dibuat double.`);
+      }
+
+      pendingContainerPayload = payload;
+      openContainerConfirmModal(payload);
+    }
+
+    function openContainerConfirmModal(payload) {
+      document.getElementById("modalRoot").className = "modal-backdrop active";
+      document.getElementById("modalRoot").innerHTML = `
+        <div class="modal">
+          <h3>Apakah data container sudah sesuai?</h3>
+          <p class="modal-text">Pastikan nomor container sudah benar sebelum submit.</p>
+          <div class="confirm-number">${esc(payload.container)}</div>
+          <div class="modal-actions">
+            <button id="confirmSubmitInBtn" class="btn green" onclick="confirmContainerInSubmit()">Ya, Submit</button>
+            <button class="btn light" onclick="closeModal()">Cek Ulang / Revisi</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function confirmContainerInSubmit() {
+      if (isSubmitting) return;
+      const payload = pendingContainerPayload;
+      if (!payload) return closeModal();
+
+      if (hasActiveContainer(payload.container) || state.events.some(ev => ev.id === payload.id || ev.clientKey === payload.clientKey)) {
+        closeModal();
+        return toast(`Container ${payload.container} sudah pernah disubmit, data tidak dibuat double.`);
+      }
+
+      isSubmitting = true;
+      const btn = document.getElementById("confirmSubmitInBtn");
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Submitting...";
+      }
+
       state.events.push(payload);
       persist();
-      await remoteSaveEvent(payload);
-      route = { page: "stacking", id: null, search: "" };
+      pendingContainerPayload = null;
       currentPhoto = null;
+      closeModal();
+      route = { page: "stacking", id: null, search: "" };
       render();
       toast("Container berhasil ditambahkan dan masuk ke task Equipment.");
+
+      remoteSaveEvent(payload)
+        .then(() => { if (route.page === "stacking") render(); })
+        .finally(() => { isSubmitting = false; });
     }
 
     function renderContainerInfo(eventId) {
@@ -790,7 +853,7 @@
               <label>PHOTO</label>
               <input id="photo" class="input" type="file" accept="image/*" onchange="handlePhoto(this.files?.[0])" />
             </div>
-            <button class="btn green full" type="submit">SUBMIT</button>
+            <button id="submitOutBtn" class="btn green full" type="submit">SUBMIT</button>
           </form>
           <div>
             <div class="preview-box" id="photoPreview">Photo Preview</div>
@@ -802,18 +865,34 @@
 
     async function submitContainerOut(event, inEventId) {
       event.preventDefault();
+      if (isSubmitting) return;
+
       const inEv = state.events.find(e => e.id === inEventId);
       const payload = collectForm("OUT");
       payload.relatedInId = inEventId;
       payload.container = (payload.container || inEv?.container || "").toUpperCase();
+      payload.clientKey = buildClientKey(payload);
+
       if (!payload.container) return toast("No. Container wajib diisi.");
+      if (hasOutForInEvent(inEventId)) return toast(`Container ${payload.container} sudah pernah OUT, data tidak dibuat double.`);
+
+      isSubmitting = true;
+      const btn = event.submitter || document.getElementById("submitOutBtn");
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Submitting...";
+      }
+
       state.events.push(payload);
       persist();
-      await remoteSaveEvent(payload);
       route = { page: "stacking", id: null, search: "" };
       currentPhoto = null;
       render();
       toast("Container OUT berhasil disubmit dan masuk ke task Equipment.");
+
+      remoteSaveEvent(payload)
+        .then(() => { if (route.page === "stacking") render(); })
+        .finally(() => { isSubmitting = false; });
     }
 
     function renderEquipment() {
@@ -869,7 +948,7 @@
         <div class="modal">
           <h3>Equipment Name</h3>
           <input id="equipmentName" class="input" type="text" placeholder="free text" onkeydown="if(event.key==='Enter') submitValidate()" />
-          <button class="btn green full" onclick="submitValidate()">SUBMIT</button>
+          <button id="validateSubmitBtn" class="btn green full" onclick="submitValidate()">SUBMIT</button>
           <button class="btn light full" onclick="closeModal()">Cancel</button>
         </div>
       `;
@@ -877,22 +956,47 @@
     }
 
     async function submitValidate() {
+      if (isValidating) return;
+
       const name = document.getElementById("equipmentName")?.value.trim();
       if (!name) return toast("Equipment Name wajib diisi.");
+
       const ev = state.events.find(e => e.id === validatingEventId);
       if (!ev) return closeModal();
+
+      if (ev.status === "validated") {
+        closeModal();
+        route = { page: "equipment", id: null, search: route.search || "" };
+        render();
+        return toast("Task ini sudah divalidasi sebelumnya.");
+      }
+
+      isValidating = true;
+      const btn = document.getElementById("validateSubmitBtn");
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Submitting...";
+      }
+
       ev.status = "validated";
       ev.equipmentName = name;
       ev.validatedAt = new Date().toISOString();
+      ev.clientKey = ev.clientKey || buildClientKey(ev);
       persist();
-      await remoteSaveEvent(ev);
+
       closeModal();
+      route = { page: "equipment", id: null, search: route.search || "" };
       render();
       toast("Task sudah divalidasi oleh Equipment.");
+
+      remoteSaveEvent(ev)
+        .then(() => { if (route.page === "equipment") render(); })
+        .finally(() => { isValidating = false; });
     }
 
     function closeModal() {
       validatingEventId = null;
+      pendingContainerPayload = null;
       const root = document.getElementById("modalRoot");
       root.className = "modal-backdrop";
       root.innerHTML = "";
@@ -967,7 +1071,7 @@
       const container = getVal("container").toUpperCase().replace(/\s+/g, "");
       const movement = getVal("movement") || (type === "IN" ? "IM" : "RP");
       const date = document.getElementById("date")?.value || nowInputValue();
-      return {
+      const payload = {
         id: cryptoRandomId(),
         type,
         date: normalizeDateInput(date),
@@ -984,8 +1088,23 @@
         status: "pending",
         equipmentName: "",
         createdAt: new Date().toISOString(),
-        validatedAt: ""
+        validatedAt: "",
+        relatedInId: "",
+        clientKey: ""
       };
+      payload.clientKey = buildClientKey(payload);
+      return payload;
+    }
+
+    function hasActiveContainer(container) {
+      return getActiveContainers().some(item => norm(item.container) === norm(container));
+    }
+
+    function hasOutForInEvent(inEventId) {
+      return state.events.some(ev => {
+        const isOut = ev.type === "OUT" || norm(ev.movement) === "RP";
+        return isOut && ev.relatedInId === inEventId;
+      });
     }
 
     function getActiveContainers() {
@@ -1173,6 +1292,17 @@
       if (!value) return new Date().toISOString();
       const d = new Date(value);
       return Number.isFinite(d.getTime()) ? d.toISOString() : new Date().toISOString();
+    }
+
+    function buildClientKey(event) {
+      const container = norm(event?.container);
+      const type = norm(event?.type || (norm(event?.movement) === "RP" ? "OUT" : "IN"));
+      const movement = norm(event?.movement);
+      const related = norm(event?.relatedInId);
+      let dateKey = "";
+      const d = new Date(event?.date || "");
+      if (Number.isFinite(d.getTime())) dateKey = d.toISOString().slice(0, 16);
+      return [container, type, movement, related, dateKey].join("|");
     }
 
     function buildPhotoName(container, movement, dateValue) {
