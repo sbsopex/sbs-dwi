@@ -713,7 +713,8 @@
             ${textField("stacking", "STACKING", "Input free text", true)}
             <div class="field">
               <label>PHOTO</label>
-              <input id="photo" class="input" type="file" accept="image/*" onchange="handlePhoto(this.files?.[0])" />
+              <input id="photo" class="input" type="file" accept="image/*" capture="environment" onchange="handlePhoto(this.files?.[0])" />
+              <div class="hint" style="margin-top:8px">Dari HP akan membuka kamera belakang. Dari laptop tetap menjadi pilih file.</div>
             </div>
             <button id="submitInBtn" class="btn green full" type="submit">SUBMIT</button>
           </form>
@@ -844,7 +845,8 @@
             ${textField("stacking", "STACKING", "Input free text", true)}
             <div class="field">
               <label>PHOTO</label>
-              <input id="photo" class="input" type="file" accept="image/*" onchange="handlePhoto(this.files?.[0])" />
+              <input id="photo" class="input" type="file" accept="image/*" capture="environment" onchange="handlePhoto(this.files?.[0])" />
+              <div class="hint" style="margin-top:8px">Dari HP akan membuka kamera belakang. Dari laptop tetap menjadi pilih file.</div>
             </div>
             <button id="submitOutBtn" class="btn green full" type="submit">SUBMIT</button>
           </form>
