@@ -1,0 +1,1204 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SBS - DWI Movement Dashboard</title>
+  <style>
+    :root {
+      --navy: #111c4e;
+      --navy-2: #18386a;
+      --yellow: #ffef5e;
+      --yellow-soft: #fff8a6;
+      --green: #4caf50;
+      --red: #ef2f2f;
+      --blue: #0e95bf;
+      --text: #202124;
+      --muted: #6b7280;
+      --line: #d8dde7;
+      --bg: #f4f7fb;
+      --white: #ffffff;
+      --shadow: 0 16px 40px rgba(17, 28, 78, 0.14);
+      --radius: 16px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    button, input, select, textarea { font: inherit; }
+
+    button {
+      border: none;
+      cursor: pointer;
+      transition: transform .15s ease, opacity .15s ease, box-shadow .15s ease;
+    }
+
+    button:hover { transform: translateY(-1px); }
+    button:active { transform: translateY(0); opacity: .88; }
+    button:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+
+    .screen {
+      width: min(1120px, 100%);
+      margin: 0 auto;
+      min-height: 100vh;
+      background: #fff;
+      box-shadow: 0 0 0 1px rgba(17, 28, 78, .05);
+    }
+
+    .login-wrap {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 28px;
+      background: linear-gradient(135deg, var(--navy) 0%, #193c70 100%);
+    }
+
+    .login-card {
+      width: min(420px, 100%);
+      background: var(--white);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+      padding: 34px 28px 26px;
+      text-align: center;
+    }
+
+    .login-logo {
+      width: 82px;
+      height: 58px;
+      object-fit: contain;
+      margin-bottom: 10px;
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: #b7c0d7;
+      font-size: 12px;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .login-card h1 {
+      margin: 0;
+      color: var(--navy);
+      font-size: 24px;
+      letter-spacing: -.03em;
+    }
+
+    .login-card p { color: var(--muted); margin: 10px 0 20px; }
+
+    .password-row { display: flex; gap: 10px; margin-top: 14px; }
+
+    .input, .select, .textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: #f8fbff;
+      border-radius: 12px;
+      padding: 13px 14px;
+      outline: none;
+      color: var(--text);
+    }
+
+    .input:focus, .select:focus, .textarea:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(14, 149, 191, .12);
+    }
+
+    .btn {
+      border-radius: 12px;
+      padding: 12px 18px;
+      font-weight: 800;
+      color: var(--white);
+      background: var(--navy-2);
+      box-shadow: 0 8px 20px rgba(24, 56, 106, .15);
+    }
+
+    .btn.full { width: 100%; margin-top: 12px; }
+    .btn.blue { background: var(--blue); }
+    .btn.green { background: var(--green); }
+    .btn.red { background: var(--red); }
+    .btn.yellow { background: #ffe000; color: var(--navy); }
+    .btn.light { background: #edf2fb; color: var(--navy); box-shadow: none; }
+    .btn.small { padding: 8px 12px; border-radius: 10px; font-size: 13px; }
+
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      margin-top: 16px;
+    }
+
+    .error { color: var(--red); font-weight: 700; min-height: 20px; margin-top: 10px; }
+
+    .header {
+      background: var(--navy);
+      color: var(--white);
+      min-height: 74px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 20px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      box-shadow: 0 7px 18px rgba(17, 28, 78, .18);
+    }
+
+    .brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
+    .brand-logo {
+      width: 68px;
+      height: 48px;
+      object-fit: contain;
+      background: rgba(255,255,255,.08);
+      border-radius: 7px;
+      padding: 3px;
+    }
+    .brand-title { font-weight: 900; letter-spacing: -.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .brand-sub { color: #c8d5ef; font-size: 12px; margin-top: 2px; }
+
+    .header-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+
+    .content { padding: 20px; }
+
+    .toolbar {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .searchbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--white);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 8px 14px;
+      flex: 1 1 320px;
+      box-shadow: 0 4px 14px rgba(17,28,78,.06);
+    }
+    .searchbar span { color: var(--muted); }
+    .searchbar input { border: 0; outline: 0; width: 100%; background: transparent; padding: 6px 0; }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .stat-card {
+      background: #f8fbff;
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      padding: 14px;
+    }
+    .stat-card b { display: block; color: var(--navy); font-size: 24px; margin-bottom: 3px; }
+    .stat-card span { color: var(--muted); font-size: 12px; }
+
+    .list { display: grid; gap: 10px; }
+
+    .container-card, .task-card, .history-card {
+      background: linear-gradient(180deg, var(--yellow) 0%, #fff17a 100%);
+      border: 1px solid #dfc900;
+      border-bottom: 4px solid rgba(17, 28, 78, .2);
+      border-radius: 8px;
+      padding: 14px;
+      display: grid;
+      grid-template-columns: minmax(120px, 1.05fr) minmax(170px, 1.8fr) 110px;
+      align-items: center;
+      gap: 12px;
+      text-align: left;
+      color: var(--text);
+    }
+
+    .history-card { grid-template-columns: minmax(120px, 1fr) minmax(160px, 1fr) minmax(160px, 1fr); cursor: pointer; }
+    .task-card { grid-template-columns: minmax(130px, 1fr) minmax(260px, 2fr) 120px; }
+    .container-card { cursor: pointer; }
+
+    .card-title {
+      font-weight: 900;
+      color: #e52323;
+      font-size: 18px;
+      word-break: break-word;
+    }
+    .card-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 14px; font-size: 13px; }
+    .card-meta b { color: var(--navy); }
+    .photo-thumb {
+      width: 96px;
+      height: 76px;
+      border: 2px solid #e6e6e6;
+      background: #fff;
+      border-radius: 4px;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      font-size: 12px;
+      overflow: hidden;
+      justify-self: end;
+    }
+    .photo-thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+    .empty {
+      background: #f8fbff;
+      border: 1px dashed #a8b4cc;
+      color: var(--muted);
+      border-radius: var(--radius);
+      padding: 30px;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    .form-page {
+      display: grid;
+      grid-template-columns: minmax(280px, 560px) minmax(220px, 1fr);
+      gap: 24px;
+      align-items: start;
+    }
+
+    .form-card, .info-card {
+      background: var(--white);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 8px 24px rgba(17, 28, 78, .08);
+      padding: 18px;
+    }
+
+    .form-title {
+      text-align: center;
+      color: var(--navy);
+      margin: 0 0 18px;
+      font-size: 20px;
+      letter-spacing: -.02em;
+      text-transform: uppercase;
+    }
+
+    .field {
+      background: var(--yellow-soft);
+      border: 1px solid #e8d72d;
+      padding: 10px;
+      margin-bottom: 10px;
+      border-radius: 10px;
+    }
+    .field label { display: block; color: var(--navy); font-weight: 900; font-size: 12px; text-transform: uppercase; margin-bottom: 6px; }
+    .driver-grid { display: grid; grid-template-columns: 84px 1fr; gap: 8px; align-items: center; }
+    .driver-grid span { font-size: 12px; color: var(--navy); font-weight: 800; }
+
+    .preview-box {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      min-height: 280px;
+      padding: 16px;
+      text-align: center;
+      color: var(--muted);
+      display: grid;
+      place-items: center;
+    }
+    .preview-box img { width: 100%; max-height: 420px; object-fit: contain; border-radius: 12px; }
+
+    .info-layout {
+      display: grid;
+      grid-template-columns: 1fr 260px;
+      gap: 22px;
+      align-items: start;
+    }
+    .info-list { display: grid; gap: 14px; }
+    .info-line { display: grid; grid-template-columns: 140px 1fr; gap: 10px; align-items: start; }
+    .info-line b { color: var(--navy); }
+    .info-photo {
+      width: 100%;
+      min-height: 320px;
+      border: 2px solid #c9c9c9;
+      background: #fff;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      overflow: hidden;
+    }
+    .info-photo img { width: 100%; height: 100%; object-fit: cover; }
+    .info-actions { display: flex; gap: 14px; justify-content: center; margin-top: 28px; flex-wrap: wrap; }
+
+    .history-detail {
+      display: grid;
+      grid-template-columns: 1fr 300px;
+      gap: 20px;
+      align-items: start;
+    }
+    .split-section { border-bottom: 2px solid #bfc6d8; padding-bottom: 18px; margin-bottom: 18px; }
+    .split-section:last-child { border-bottom: 0; margin-bottom: 0; }
+    .photo-stack { display: grid; gap: 16px; }
+    .photo-label { font-weight: 900; color: var(--navy); text-align: center; margin-bottom: 5px; }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, .46);
+      display: none;
+      place-items: center;
+      z-index: 50;
+      padding: 20px;
+    }
+    .modal-backdrop.active { display: grid; }
+    .modal {
+      width: min(380px, 100%);
+      background: #fff;
+      border-radius: 16px;
+      padding: 22px;
+      text-align: center;
+      box-shadow: var(--shadow);
+    }
+    .modal h3 { margin: 0 0 16px; color: var(--navy); }
+    .modal-actions { display: grid; gap: 10px; }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 22px;
+      transform: translateX(-50%);
+      background: var(--navy);
+      color: #fff;
+      padding: 12px 18px;
+      border-radius: 999px;
+      box-shadow: var(--shadow);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s ease;
+      z-index: 70;
+      max-width: min(92vw, 620px);
+      text-align: center;
+    }
+    .toast.show { opacity: 1; }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #edf2fb;
+      color: var(--navy);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .sync-note {
+      border-left: 4px solid var(--blue);
+      background: #eef9fd;
+      padding: 12px 14px;
+      border-radius: 12px;
+      color: #20435a;
+      margin-top: 12px;
+      text-align: left;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    details.integration {
+      text-align: left;
+      margin-top: 16px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    details.integration summary { cursor: pointer; color: var(--navy); font-weight: 900; }
+    code { background: #eef2f7; padding: 1px 5px; border-radius: 5px; }
+
+    @media (max-width: 820px) {
+      .screen { box-shadow: none; }
+      .header { align-items: flex-start; }
+      .brand-title { white-space: normal; }
+      .stats { grid-template-columns: 1fr; }
+      .container-card, .task-card, .history-card { grid-template-columns: 1fr; }
+      .photo-thumb { justify-self: start; width: 120px; height: 86px; }
+      .form-page, .info-layout, .history-detail { grid-template-columns: 1fr; }
+      .info-photo { min-height: 240px; }
+      .card-meta { grid-template-columns: 1fr; }
+      .content { padding: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="modalRoot" class="modal-backdrop"></div>
+  <div id="toast" class="toast"></div>
+
+  <script>
+    /**********************************************************************
+     * SBS - DWI Movement Dashboard
+     * Single HTML application.
+     *
+     * IMPORTANT UNTUK SAVE KE GOOGLE SHEETS & DRIVE:
+     * Browser HTML statis tidak bisa langsung write ke Google Sheets/Drive
+     * tanpa otorisasi/backend. Isi APPS_SCRIPT_URL dengan URL Web App dari
+     * Google Apps Script agar data tersimpan ke spreadsheet dan photo ke Drive.
+     * Jika kosong, website tetap berjalan sebagai DEMO menggunakan localStorage.
+     **********************************************************************/
+
+    const CONFIG = {
+      COMPANY_LOGO: "https://www.sbs-icd.com/assets/img/logosbs.png",
+      SHEET_URL: "https://docs.google.com/spreadsheets/d/15A_Qv5Q-z08t6RJGk-MCmFCBGkcinEAhBFJXmevN7fY/edit?usp=sharing",
+      DRIVE_FOLDER_URL: "https://drive.google.com/drive/folders/1FZx3DGaK2Mdfyf3N_cj11zhrMSnhk9wU?usp=drive_link",
+      SHEET_ID: "15A_Qv5Q-z08t6RJGk-MCmFCBGkcinEAhBFJXmevN7fY",
+      DRIVE_FOLDER_ID: "1FZx3DGaK2Mdfyf3N_cj11zhrMSnhk9wU",
+      APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbz1aknMLFceng5K9bJDosGNbvIGvbVG96R5cNdPWLuCTsXVAa6390gq3NKst5O9dJUOMw/exec", // isi contoh: https://script.google.com/macros/s/AKfycbxxxx/exec
+      HISTORY_DAYS: 30,
+      PASSWORDS: {
+        stackdwi: "stacking",
+        eqp2026: "equipment"
+      }
+    };
+
+    const STORAGE_KEY = "sbs_dwi_movement_state_v1";
+    const SESSION_KEY = "sbs_dwi_session";
+
+    let route = { page: "login", id: null, search: "" };
+    let currentPhoto = null;
+    let validatingEventId = null;
+    let state = loadLocalState();
+
+    document.addEventListener("DOMContentLoaded", init);
+
+    function init() {
+      cleanupHistory();
+      const session = getSession();
+      if (session?.role === "stacking") route.page = "stacking";
+      if (session?.role === "equipment") route.page = "equipment";
+      render();
+      remoteLoadIfConfigured();
+    }
+
+    function loadLocalState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return { events: [] };
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed.events)) return { events: [] };
+        return parsed;
+      } catch (error) {
+        return { events: [] };
+      }
+    }
+
+    function persist() {
+      cleanupHistory(false);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
+
+    function getSession() {
+      try { return JSON.parse(sessionStorage.getItem(SESSION_KEY)); }
+      catch (error) { return null; }
+    }
+
+    function setSession(role) {
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify({ role, loginAt: new Date().toISOString() }));
+    }
+
+    function logout() {
+      sessionStorage.removeItem(SESSION_KEY);
+      route = { page: "login", id: null, search: "" };
+      currentPhoto = null;
+      render();
+      toast("Berhasil logout.");
+    }
+
+    function cleanupHistory(shouldPersist = true) {
+      const cutoff = Date.now() - CONFIG.HISTORY_DAYS * 24 * 60 * 60 * 1000;
+      const before = state.events.length;
+      const expiredContainers = new Set();
+      state.events.forEach(ev => {
+        if (ev.type !== "OUT") return;
+        const dateMs = new Date(ev.date).getTime();
+        if (Number.isFinite(dateMs) && dateMs < cutoff) expiredContainers.add(norm(ev.container));
+      });
+      if (expiredContainers.size) {
+        state.events = state.events.filter(ev => !expiredContainers.has(norm(ev.container)));
+      }
+      if (shouldPersist && before !== state.events.length) localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
+
+    async function remoteLoadIfConfigured() {
+      if (!CONFIG.APPS_SCRIPT_URL) return;
+      try {
+        const res = await fetch(`${CONFIG.APPS_SCRIPT_URL}?action=list`, { method: "GET" });
+        const data = await res.json();
+        if (data && Array.isArray(data.events)) {
+          state.events = data.events;
+          persist();
+          render();
+          toast("Data berhasil dimuat dari Spreadsheet.");
+        }
+      } catch (error) {
+        console.warn("Remote load failed", error);
+        toast("Koneksi Spreadsheet belum berhasil, memakai data lokal sementara.");
+      }
+    }
+
+    async function remoteSaveEvent(event) {
+      if (!CONFIG.APPS_SCRIPT_URL) return { ok: false, localOnly: true };
+      try {
+        const res = await fetch(CONFIG.APPS_SCRIPT_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({ action: "saveEvent", event, folderId: CONFIG.DRIVE_FOLDER_ID, sheetId: CONFIG.SHEET_ID })
+        });
+        const data = await res.json();
+        if (data?.event) {
+          const idx = state.events.findIndex(e => e.id === event.id);
+          if (idx >= 0) state.events[idx] = data.event;
+          persist();
+        }
+        return { ok: true, data };
+      } catch (error) {
+        console.warn("Remote save failed", error);
+        toast("Data tersimpan lokal. Cek Apps Script URL untuk sinkron ke Spreadsheet.");
+        return { ok: false, error };
+      }
+    }
+
+    function render() {
+      const session = getSession();
+      if (!session) return renderLogin();
+      if (route.page === "stacking") return renderStacking();
+      if (route.page === "add") return renderAddContainer();
+      if (route.page === "info") return renderContainerInfo(route.id);
+      if (route.page === "out") return renderContainerOut(route.id);
+      if (route.page === "equipment") return renderEquipment();
+      if (route.page === "history") return renderHistory();
+      if (route.page === "historyInfo") return renderHistoryInfo(route.id);
+      renderLogin();
+    }
+
+    function layout(title, subtitle, actions, content) {
+      document.getElementById("app").innerHTML = `
+        <main class="screen">
+          <header class="header">
+            <div class="brand">
+              <img class="brand-logo" src="${CONFIG.COMPANY_LOGO}" alt="SBS Logo" onerror="this.style.display='none'" />
+              <div>
+                <div class="brand-title">${title}</div>
+                <div class="brand-sub">${subtitle || "Movement DWI"}</div>
+              </div>
+            </div>
+            <div class="header-actions">${actions || ""}</div>
+          </header>
+          <section class="content">${content}</section>
+        </main>
+      `;
+    }
+
+    function renderLogin() {
+      document.getElementById("app").innerHTML = `
+        <div class="login-wrap">
+          <section class="login-card">
+            <img class="login-logo" src="${CONFIG.COMPANY_LOGO}" alt="SBS Logo" onerror="this.style.display='none'" />
+            <p class="eyebrow">SBS DWI Dashboard</p>
+            <h1>🔐 Movement Dashboard</h1>
+            <p>Masukkan password untuk masuk ke laman Stacking DWI atau Equipment.</p>
+            <input id="loginPassword" class="input" type="password" placeholder="Enter your password" autocomplete="current-password" onkeydown="if(event.key==='Enter') handleLogin()" />
+            <button class="btn full" onclick="handleLogin()">Unlock</button>
+            <div id="loginError" class="error"></div>
+            <div class="hint">Password Stacking DWI: <b>stackdwi</b><br/>Password Equipment: <b>eqp2026</b></div>
+            <details class="integration">
+              <summary>Status koneksi Spreadsheet & Drive</summary>
+              <p>File ini sudah memakai link spreadsheet dan folder Drive yang diberikan. Untuk penyimpanan live lintas user, isi variabel <code>APPS_SCRIPT_URL</code> di bagian atas file HTML dengan URL Web App Google Apps Script. Jika belum diisi, data berjalan di browser ini saja menggunakan <code>localStorage</code>.</p>
+              <p><a href="${CONFIG.SHEET_URL}" target="_blank" rel="noopener">Open Spreadsheet</a> · <a href="${CONFIG.DRIVE_FOLDER_URL}" target="_blank" rel="noopener">Open Drive Folder</a></p>
+            </details>
+          </section>
+        </div>
+      `;
+      setTimeout(() => document.getElementById("loginPassword")?.focus(), 10);
+    }
+
+    function handleLogin() {
+      const pass = document.getElementById("loginPassword")?.value.trim();
+      const role = CONFIG.PASSWORDS[pass];
+      const err = document.getElementById("loginError");
+      if (!role) {
+        if (err) err.textContent = "Password tidak sesuai.";
+        return;
+      }
+      setSession(role);
+      route = { page: role === "stacking" ? "stacking" : "equipment", id: null, search: "" };
+      render();
+    }
+
+    function renderStacking() {
+      const active = getActiveContainers().filter(item => matchesSearch(item.container));
+      const pending = getPendingEvents();
+      layout(
+        "SBS - DWI",
+        "Stacking DWI",
+        `<button class="btn blue small" onclick="go('add')">+ ADD CONTAINER</button><button class="btn red small" onclick="logout()">Logout</button>`,
+        `
+          <div class="toolbar">
+            ${searchInput("Search No. Container")}
+            <span class="pill">Local records: ${state.events.length}</span>
+          </div>
+          ${syncBanner()}
+          <div class="stats">
+            <div class="stat-card"><b>${active.length}</b><span>Container aktif di Stacking</span></div>
+            <div class="stat-card"><b>${pending.length}</b><span>Menunggu validasi Equipment</span></div>
+            <div class="stat-card"><b>${getHistoryContainers().length}</b><span>History OUT ≤ ${CONFIG.HISTORY_DAYS} hari</span></div>
+          </div>
+          <div class="list">
+            ${active.length ? active.map(containerCard).join("") : emptyState("Belum ada container aktif. Klik ADD CONTAINER untuk menambahkan data inbound/movement awal.")}
+          </div>
+        `
+      );
+    }
+
+    function containerCard(item) {
+      const ev = item.inEvent;
+      return `
+        <button class="container-card" onclick="go('info', '${ev.id}')">
+          <div class="card-title">${esc(item.container)}</div>
+          <div class="card-meta">
+            <div><b>Customer</b>: ${esc(ev.customer || "-")}</div>
+            <div><b>Stacking</b>: ${esc(ev.stacking || "-")}</div>
+            <div><b>Date</b>: ${formatDate(ev.date)}</div>
+            <div><b>Movement</b>: ${esc(ev.movement || "IM")}</div>
+            <div><b>Driver</b>: ${esc(driverInfo(ev))}</div>
+            <div><b>Equipment</b>: ${esc(ev.equipmentName || "Pending")}</div>
+          </div>
+          <div class="photo-thumb">${photoMarkup(ev, "Photo")}</div>
+        </button>
+      `;
+    }
+
+    function renderAddContainer() {
+      currentPhoto = null;
+      layout(
+        "SBS - DWI",
+        "Add Container",
+        `<button class="btn light small" onclick="go('stacking')">Back</button><button class="btn red small" onclick="logout()">Logout</button>`,
+        `
+        <div class="form-page">
+          <form class="form-card" onsubmit="submitContainerIn(event)">
+            <h2 class="form-title">ADD CONTAINER</h2>
+            ${dateField("date", "DATE", nowInputValue())}
+            ${selectField("customer", "CUSTOMER", ["MLI", "STI", "HACACA", "OTHER"])}
+            ${textField("container", "NO. CONTAINER", "Input free text", true)}
+            <div class="field">
+              <label>DRIVER INFORMATION</label>
+              <div class="driver-grid">
+                <span>No. Plat</span><input id="noPlat" class="input" type="text" placeholder="Input free text" />
+                <span>Nama</span><input id="driverName" class="input" type="text" placeholder="Input free text" />
+                <span>No. HP</span><input id="driverPhone" class="input" type="text" placeholder="Input free text" />
+              </div>
+            </div>
+            ${selectField("movement", "MOVEMENT", ["IM", "RF", "OH", "OB", "OTHER"], "IM")}
+            ${textField("stacking", "STACKING", "Input free text", true)}
+            <div class="field">
+              <label>PHOTO</label>
+              <input id="photo" class="input" type="file" accept="image/*" onchange="handlePhoto(this.files?.[0])" />
+            </div>
+            <button class="btn green full" type="submit">SUBMIT</button>
+          </form>
+          <div>
+            <div class="preview-box" id="photoPreview">Photo Preview</div>
+            <div class="sync-note">Format nama photo saat dikirim ke Drive: <b>(Container)_(Movement)_(Date)</b>. Saat Apps Script belum dihubungkan, photo tersimpan lokal di browser.</div>
+          </div>
+        </div>`
+      );
+    }
+
+    async function submitContainerIn(event) {
+      event.preventDefault();
+      const payload = collectForm("IN");
+      if (!payload.container) return toast("No. Container wajib diisi.");
+      state.events.push(payload);
+      persist();
+      await remoteSaveEvent(payload);
+      route = { page: "stacking", id: null, search: "" };
+      currentPhoto = null;
+      render();
+      toast("Container berhasil ditambahkan dan masuk ke task Equipment.");
+    }
+
+    function renderContainerInfo(eventId) {
+      const ev = state.events.find(e => e.id === eventId);
+      if (!ev) return go("stacking");
+      layout(
+        "SBS - DWI",
+        "Container Info",
+        `<button class="btn red small" onclick="logout()">Logout</button>`,
+        `
+          <section class="info-card">
+            <h2 class="form-title" style="text-align:left">CONTAINER INFO</h2>
+            <div class="info-layout">
+              <div>
+                <div class="info-list">
+                  ${infoLine("Date IN", formatDate(ev.date))}
+                  ${infoLine("Durasi", durationText(ev.date))}
+                  ${infoLine("No. Container", ev.container)}
+                  ${infoLine("Info Driver", driverInfo(ev))}
+                  ${infoLine("Stacking IN", ev.stacking)}
+                  ${infoLine("Equipment IN", ev.equipmentName || "Pending Validate")}
+                </div>
+                <div class="info-actions">
+                  <button class="btn red" onclick="go('stacking')">BACK</button>
+                  <button class="btn green" onclick="go('out', '${ev.id}')">OUT</button>
+                </div>
+              </div>
+              <div class="info-photo">${photoMarkup(ev, "Photo")}</div>
+            </div>
+          </section>
+        `
+      );
+    }
+
+    function renderContainerOut(inEventId) {
+      const inEv = state.events.find(e => e.id === inEventId);
+      if (!inEv) return go("stacking");
+      currentPhoto = null;
+      layout(
+        "SBS - DWI",
+        "Container Out",
+        `<button class="btn light small" onclick="go('info', '${inEventId}')">Back</button><button class="btn red small" onclick="logout()">Logout</button>`,
+        `
+        <div class="form-page">
+          <form class="form-card" onsubmit="submitContainerOut(event, '${inEventId}')">
+            <h2 class="form-title">CONTAINER OUT</h2>
+            ${dateField("date", "DATE", nowInputValue())}
+            ${selectField("customer", "CUSTOMER", ["MLI", "STI", "HACACA", "OTHER"], inEv.customer || "MLI")}
+            ${textField("container", "NO. CONTAINER", "Input free text", true, inEv.container)}
+            <div class="field">
+              <label>DRIVER INFORMATION</label>
+              <div class="driver-grid">
+                <span>No. Plat</span><input id="noPlat" class="input" type="text" placeholder="Input free text" />
+                <span>Nama</span><input id="driverName" class="input" type="text" placeholder="Input free text" />
+                <span>No. HP</span><input id="driverPhone" class="input" type="text" placeholder="Input free text" />
+              </div>
+            </div>
+            ${selectField("movement", "MOVEMENT", ["RP", "OB", "OH", "RF", "OTHER"], "RP")}
+            ${textField("stacking", "STACKING", "Input free text", true)}
+            <div class="field">
+              <label>PHOTO</label>
+              <input id="photo" class="input" type="file" accept="image/*" onchange="handlePhoto(this.files?.[0])" />
+            </div>
+            <button class="btn green full" type="submit">SUBMIT</button>
+          </form>
+          <div>
+            <div class="preview-box" id="photoPreview">Photo Preview</div>
+            <div class="sync-note">Setelah submit OUT, container tidak tampil lagi di laman Stacking DWI dan langsung masuk task validasi Equipment.</div>
+          </div>
+        </div>`
+      );
+    }
+
+    async function submitContainerOut(event, inEventId) {
+      event.preventDefault();
+      const inEv = state.events.find(e => e.id === inEventId);
+      const payload = collectForm("OUT");
+      payload.relatedInId = inEventId;
+      payload.container = (payload.container || inEv?.container || "").toUpperCase();
+      if (!payload.container) return toast("No. Container wajib diisi.");
+      state.events.push(payload);
+      persist();
+      await remoteSaveEvent(payload);
+      route = { page: "stacking", id: null, search: "" };
+      currentPhoto = null;
+      render();
+      toast("Container OUT berhasil disubmit dan masuk ke task Equipment.");
+    }
+
+    function renderEquipment() {
+      const pending = getPendingEvents().filter(ev => matchesSearch(ev.container));
+      layout(
+        "SBS - DWI",
+        "Equipment Task",
+        `<button class="btn yellow small" onclick="go('history')">History</button><button class="btn red small" onclick="logout()">Logout</button>`,
+        `
+          <div class="toolbar">
+            ${searchInput("Search No. Container")}
+            <span class="pill">Pending Validate: ${pending.length}</span>
+          </div>
+          ${syncBanner()}
+          <div class="list">
+            ${pending.length ? pending.map(taskCard).join("") : emptyState("Tidak ada task validasi Equipment saat ini.")}
+          </div>
+        `
+      );
+    }
+
+    function taskCard(ev) {
+      return `
+        <div class="task-card">
+          <div class="card-title">${esc(ev.container)}</div>
+          <div class="card-meta">
+            <div><b>Date</b>: ${formatDate(ev.date)}</div>
+            <div><b>Customer</b>: ${esc(ev.customer || "-")}</div>
+            <div><b>Stacking</b>: ${esc(ev.stacking || "-")}</div>
+            <div><b>Movement</b>: ${esc(ev.movement || ev.type)}</div>
+          </div>
+          <button class="btn green small" onclick="openValidate('${ev.id}')">VALIDATE</button>
+        </div>
+      `;
+    }
+
+    function openValidate(eventId) {
+      validatingEventId = eventId;
+      document.getElementById("modalRoot").className = "modal-backdrop active";
+      document.getElementById("modalRoot").innerHTML = `
+        <div class="modal">
+          <h3>Apakah sudah diinput ke dalam STDS?</h3>
+          <div class="modal-actions">
+            <button class="btn green" onclick="showEquipmentNameModal()">Sudah</button>
+            <button class="btn red" onclick="closeModal()">Belum</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function showEquipmentNameModal() {
+      document.getElementById("modalRoot").innerHTML = `
+        <div class="modal">
+          <h3>Equipment Name</h3>
+          <input id="equipmentName" class="input" type="text" placeholder="free text" onkeydown="if(event.key==='Enter') submitValidate()" />
+          <button class="btn green full" onclick="submitValidate()">SUBMIT</button>
+          <button class="btn light full" onclick="closeModal()">Cancel</button>
+        </div>
+      `;
+      setTimeout(() => document.getElementById("equipmentName")?.focus(), 10);
+    }
+
+    async function submitValidate() {
+      const name = document.getElementById("equipmentName")?.value.trim();
+      if (!name) return toast("Equipment Name wajib diisi.");
+      const ev = state.events.find(e => e.id === validatingEventId);
+      if (!ev) return closeModal();
+      ev.status = "validated";
+      ev.equipmentName = name;
+      ev.validatedAt = new Date().toISOString();
+      persist();
+      await remoteSaveEvent(ev);
+      closeModal();
+      render();
+      toast("Task sudah divalidasi oleh Equipment.");
+    }
+
+    function closeModal() {
+      validatingEventId = null;
+      const root = document.getElementById("modalRoot");
+      root.className = "modal-backdrop";
+      root.innerHTML = "";
+    }
+
+    function renderHistory() {
+      const history = getHistoryContainers().filter(item => matchesSearch(item.container));
+      layout(
+        "HISTORY SBS - DWI",
+        `Container OUT maksimal ${CONFIG.HISTORY_DAYS} hari`,
+        `<button class="btn red small" onclick="go('equipment')">BACK</button><button class="btn red small" onclick="logout()">Logout</button>`,
+        `
+          <div class="toolbar">${searchInput("Search No. Container")}</div>
+          <div class="list">
+            ${history.length ? history.map(historyCard).join("") : emptyState("Belum ada history container OUT yang sudah divalidasi Equipment.")}
+          </div>
+        `
+      );
+    }
+
+    function historyCard(item) {
+      return `
+        <button class="history-card" onclick="go('historyInfo', '${item.container}')">
+          <div class="card-title">${esc(item.container)}</div>
+          <div><b>Date IN</b> : ${formatDate(item.inEvent?.date)}</div>
+          <div><b>Date OUT</b> : ${formatDate(item.outEvent?.date)}</div>
+        </button>
+      `;
+    }
+
+    function renderHistoryInfo(containerNo) {
+      const item = getHistoryContainers().find(h => norm(h.container) === norm(containerNo));
+      if (!item) return go("history");
+      const inEv = item.inEvent;
+      const outEv = item.outEvent;
+      layout(
+        "SBS - DWI",
+        "History Container Info",
+        `<button class="btn red small" onclick="logout()">Logout</button>`,
+        `
+          <section class="info-card">
+            <h2 class="form-title" style="text-align:left">CONTAINER INFO</h2>
+            <div class="history-detail">
+              <div>
+                <div class="split-section">
+                  ${infoLine("Date IN", formatDate(inEv?.date))}
+                  ${infoLine("No. Container", item.container)}
+                  ${infoLine("Info Driver", driverInfo(inEv))}
+                  ${infoLine("Stacking IN", inEv?.stacking || "-")}
+                  ${infoLine("Equipment IN", inEv?.equipmentName || "-")}
+                </div>
+                <div class="split-section">
+                  ${infoLine("Date OUT", formatDate(outEv?.date))}
+                  ${infoLine("No. Container", item.container)}
+                  ${infoLine("Info Driver", driverInfo(outEv))}
+                  ${infoLine("Stacking OUT", outEv?.stacking || "-")}
+                  ${infoLine("Equipment OUT", outEv?.equipmentName || "-")}
+                </div>
+                <div class="info-actions"><button class="btn red" onclick="go('history')">BACK</button></div>
+              </div>
+              <div class="photo-stack">
+                <div><div class="photo-label">Photo IN</div><div class="info-photo">${photoMarkup(inEv, "Photo IN")}</div></div>
+                <div><div class="photo-label">Photo OUT</div><div class="info-photo">${photoMarkup(outEv, "Photo OUT")}</div></div>
+              </div>
+            </div>
+          </section>
+        `
+      );
+    }
+
+    function collectForm(type) {
+      const container = getVal("container").toUpperCase().replace(/\s+/g, "");
+      const movement = getVal("movement") || (type === "IN" ? "IM" : "RP");
+      const date = document.getElementById("date")?.value || nowInputValue();
+      return {
+        id: cryptoRandomId(),
+        type,
+        date: normalizeDateInput(date),
+        customer: getVal("customer"),
+        container,
+        noPlat: getVal("noPlat"),
+        driverName: getVal("driverName"),
+        driverPhone: getVal("driverPhone"),
+        movement,
+        stacking: getVal("stacking"),
+        photoDataUrl: currentPhoto?.dataUrl || "",
+        photoName: buildPhotoName(container, movement, date),
+        photoLink: "",
+        status: "pending",
+        equipmentName: "",
+        createdAt: new Date().toISOString(),
+        validatedAt: ""
+      };
+    }
+
+    function getActiveContainers() {
+      const map = new Map();
+      const sorted = [...state.events].sort((a,b) => new Date(a.date) - new Date(b.date));
+      sorted.forEach(ev => {
+        const key = norm(ev.container);
+        if (!key) return;
+        if (ev.type === "IN" || norm(ev.movement) === "IM") {
+          map.set(key, { container: ev.container, inEvent: ev, outEvent: null });
+        }
+        if (ev.type === "OUT" || norm(ev.movement) === "RP") {
+          const item = map.get(key) || { container: ev.container, inEvent: null, outEvent: null };
+          item.outEvent = ev;
+          map.set(key, item);
+        }
+      });
+      return [...map.values()]
+        .filter(item => item.inEvent && !item.outEvent)
+        .sort((a,b) => new Date(b.inEvent.date) - new Date(a.inEvent.date));
+    }
+
+    function getPendingEvents() {
+      return state.events
+        .filter(ev => ev.status !== "validated")
+        .sort((a,b) => new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date));
+    }
+
+    function getHistoryContainers() {
+      const groups = new Map();
+      const cutoff = Date.now() - CONFIG.HISTORY_DAYS * 24 * 60 * 60 * 1000;
+      [...state.events].sort((a,b) => new Date(a.date) - new Date(b.date)).forEach(ev => {
+        const key = norm(ev.container);
+        if (!key) return;
+        if (!groups.has(key)) groups.set(key, { container: ev.container, inEvent: null, outEvent: null });
+        const g = groups.get(key);
+        if (ev.type === "IN" || norm(ev.movement) === "IM") g.inEvent = ev;
+        if ((ev.type === "OUT" || norm(ev.movement) === "RP") && ev.status === "validated") g.outEvent = ev;
+      });
+      return [...groups.values()]
+        .filter(g => g.inEvent && g.outEvent)
+        .filter(g => new Date(g.outEvent.date).getTime() >= cutoff)
+        .sort((a,b) => new Date(b.outEvent.date) - new Date(a.outEvent.date));
+    }
+
+    function go(page, id = null) {
+      route = { page, id, search: route.search || "" };
+      render();
+    }
+
+    function setSearch(value) {
+      route.search = value || "";
+      render();
+      const el = document.getElementById("searchInput");
+      if (el) {
+        el.focus();
+        const len = el.value.length;
+        el.setSelectionRange(len, len);
+      }
+    }
+
+    function matchesSearch(container) {
+      if (!route.search) return true;
+      return norm(container).includes(norm(route.search));
+    }
+
+    function searchInput(placeholder) {
+      return `
+        <label class="searchbar">
+          <span>🔎</span>
+          <input id="searchInput" value="${esc(route.search || "")}" placeholder="${placeholder}" oninput="setSearch(this.value)" />
+        </label>`;
+    }
+
+    function syncBanner() {
+      if (CONFIG.APPS_SCRIPT_URL) {
+        return `<div class="sync-note">Mode online aktif. Data akan dikirim ke Spreadsheet dan photo ke Drive folder yang sudah dikonfigurasi.</div>`;
+      }
+      return `<div class="sync-note"><b>Mode demo lokal:</b> APPS_SCRIPT_URL belum diisi, sehingga data hanya tersimpan pada browser ini. Untuk dipakai lintas tim Stacking & Equipment, hubungkan ke Google Apps Script Web App.</div>`;
+    }
+
+    function emptyState(text) { return `<div class="empty">${text}</div>`; }
+
+    function textField(id, label, placeholder, required = false, value = "") {
+      return `<div class="field"><label for="${id}">${label}</label><input id="${id}" class="input" type="text" placeholder="${placeholder}" value="${esc(value)}" ${required ? "required" : ""} /></div>`;
+    }
+
+    function dateField(id, label, value) {
+      return `<div class="field"><label for="${id}">${label}</label><input id="${id}" class="input" type="datetime-local" value="${esc(value)}" required /></div>`;
+    }
+
+    function selectField(id, label, options, selected = "") {
+      return `<div class="field"><label for="${id}">${label}</label><select id="${id}" class="select">${options.map(opt => `<option value="${esc(opt)}" ${opt === selected ? "selected" : ""}>${esc(opt)}</option>`).join("")}</select></div>`;
+    }
+
+    function infoLine(label, value) {
+      return `<div class="info-line"><b>${esc(label)}</b><span>: ${esc(value || "-")}</span></div>`;
+    }
+
+    async function handlePhoto(file) {
+      if (!file) {
+        currentPhoto = null;
+        const prev = document.getElementById("photoPreview");
+        if (prev) prev.textContent = "Photo Preview";
+        return;
+      }
+      try {
+        const dataUrl = await resizeImage(file, 1300, 0.78);
+        currentPhoto = { name: file.name, dataUrl };
+        const prev = document.getElementById("photoPreview");
+        if (prev) prev.innerHTML = `<img src="${dataUrl}" alt="Preview" />`;
+      } catch (error) {
+        toast("Photo gagal dibaca.");
+      }
+    }
+
+    function resizeImage(file, maxSize, quality) {
+      return new Promise((resolve, reject) => {
+        if (!file.type.startsWith("image/")) {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+          return;
+        }
+        const reader = new FileReader();
+        reader.onerror = reject;
+        reader.onload = () => {
+          const img = new Image();
+          img.onerror = reject;
+          img.onload = () => {
+            let { width, height } = img;
+            if (width > height && width > maxSize) { height = Math.round(height * maxSize / width); width = maxSize; }
+            if (height >= width && height > maxSize) { width = Math.round(width * maxSize / height); height = maxSize; }
+            const canvas = document.createElement("canvas");
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL("image/jpeg", quality));
+          };
+          img.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function photoMarkup(ev, fallback) {
+      if (!ev) return esc(fallback || "Photo");
+      if (ev.photoLink) return `<a href="${esc(ev.photoLink)}" target="_blank" rel="noopener">Open Photo</a>`;
+      if (ev.photoDataUrl) return `<img src="${ev.photoDataUrl}" alt="${esc(ev.photoName || fallback || "Photo")}" />`;
+      return esc(fallback || "Photo");
+    }
+
+    function driverInfo(ev) {
+      if (!ev) return "-";
+      return [ev.driverName, ev.driverPhone, ev.noPlat].filter(Boolean).join(" / ") || "-";
+    }
+
+    function durationText(dateIn) {
+      if (!dateIn) return "-";
+      const diff = Date.now() - new Date(dateIn).getTime();
+      if (!Number.isFinite(diff) || diff < 0) return "0 jam";
+      const hours = Math.floor(diff / 36e5);
+      const days = Math.floor(hours / 24);
+      const rem = hours % 24;
+      if (days > 0) return `${days} hari ${rem} jam`;
+      return `${hours} jam`;
+    }
+
+    function formatDate(value) {
+      if (!value) return "-";
+      const d = new Date(value);
+      if (!Number.isFinite(d.getTime())) return value;
+      return d.toLocaleString("id-ID", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    }
+
+    function nowInputValue() {
+      const d = new Date();
+      d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+      return d.toISOString().slice(0, 16);
+    }
+
+    function normalizeDateInput(value) {
+      if (!value) return new Date().toISOString();
+      const d = new Date(value);
+      return Number.isFinite(d.getTime()) ? d.toISOString() : new Date().toISOString();
+    }
+
+    function buildPhotoName(container, movement, dateValue) {
+      const safeDate = (dateValue || nowInputValue()).replace(/[^0-9]/g, "").slice(0, 12);
+      return `${container || "CONTAINER"}_${movement || "MOVEMENT"}_${safeDate}.jpg`;
+    }
+
+    function getVal(id) { return (document.getElementById(id)?.value || "").trim(); }
+    function norm(value) { return String(value || "").trim().toUpperCase(); }
+    function esc(value) {
+      return String(value ?? "").replace(/[&<>'"]/g, ch => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" }[ch]));
+    }
+
+    function cryptoRandomId() {
+      if (window.crypto?.randomUUID) return crypto.randomUUID();
+      return "id_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2);
+    }
+
+    let toastTimer = null;
+    function toast(message) {
+      const el = document.getElementById("toast");
+      el.textContent = message;
+      el.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove("show"), 3200);
+    }
+  </script>
+</body>
+</html>
