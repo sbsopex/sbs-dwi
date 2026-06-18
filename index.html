@@ -626,12 +626,6 @@
             <input id="loginPassword" class="input" type="password" placeholder="Enter your password" autocomplete="current-password" onkeydown="if(event.key==='Enter') handleLogin()" />
             <button class="btn full" onclick="handleLogin()">Unlock</button>
             <div id="loginError" class="error"></div>
-            <div class="hint">Password Stacking DWI: <b>stackdwi</b><br/>Password Equipment: <b>eqp2026</b></div>
-            <details class="integration">
-              <summary>Status koneksi Spreadsheet & Drive</summary>
-              <p>File ini sudah memakai link spreadsheet dan folder Drive yang diberikan. Untuk penyimpanan live lintas user, isi variabel <code>APPS_SCRIPT_URL</code> di bagian atas file HTML dengan URL Web App Google Apps Script. Jika belum diisi, data berjalan di browser ini saja menggunakan <code>localStorage</code>.</p>
-              <p><a href="${CONFIG.SHEET_URL}" target="_blank" rel="noopener">Open Spreadsheet</a> · <a href="${CONFIG.DRIVE_FOLDER_URL}" target="_blank" rel="noopener">Open Drive Folder</a></p>
-            </details>
           </section>
         </div>
       `;
@@ -705,7 +699,7 @@
           <form class="form-card" onsubmit="submitContainerIn(event)">
             <h2 class="form-title">ADD CONTAINER</h2>
             ${dateField("date", "DATE", nowInputValue())}
-            ${selectField("customer", "CUSTOMER", ["MLI", "STI", "HACACA", "OTHER"])}
+            ${selectField("customer", "CUSTOMER", ["MLII"])}
             ${textField("container", "NO. CONTAINER", "Input free text", true)}
             <div class="field">
               <label>DRIVER INFORMATION</label>
@@ -715,7 +709,7 @@
                 <span>No. HP</span><input id="driverPhone" class="input" type="text" placeholder="Input free text" />
               </div>
             </div>
-            ${selectField("movement", "MOVEMENT", ["IM", "RF", "OH", "OB", "OTHER"], "IM")}
+            ${selectField("movement", "MOVEMENT", ["IM-FULL","IM-EMPTY"], "IM")}
             ${textField("stacking", "STACKING", "Input free text", true)}
             <div class="field">
               <label>PHOTO</label>
@@ -725,7 +719,6 @@
           </form>
           <div>
             <div class="preview-box" id="photoPreview">Photo Preview</div>
-            <div class="sync-note">Format nama photo saat dikirim ke Drive: <b>(Container)_(Movement)_(Date)</b>. Saat Apps Script belum dihubungkan, photo tersimpan lokal di browser.</div>
           </div>
         </div>`
       );
@@ -837,7 +830,7 @@
           <form class="form-card" onsubmit="submitContainerOut(event, '${inEventId}')">
             <h2 class="form-title">CONTAINER OUT</h2>
             ${dateField("date", "DATE", nowInputValue())}
-            ${selectField("customer", "CUSTOMER", ["MLI", "STI", "HACACA", "OTHER"], inEv.customer || "MLI")}
+            ${selectField("customer", "CUSTOMER", ["MLII"], inEv.customer || "MLII")}
             ${textField("container", "NO. CONTAINER", "Input free text", true, inEv.container)}
             <div class="field">
               <label>DRIVER INFORMATION</label>
@@ -847,7 +840,7 @@
                 <span>No. HP</span><input id="driverPhone" class="input" type="text" placeholder="Input free text" />
               </div>
             </div>
-            ${selectField("movement", "MOVEMENT", ["RP", "OB", "OH", "RF", "OTHER"], "RP")}
+            ${selectField("movement", "MOVEMENT", ["RP-FULL", "RP-EMPTY"], "RP")}
             ${textField("stacking", "STACKING", "Input free text", true)}
             <div class="field">
               <label>PHOTO</label>
@@ -922,7 +915,8 @@
             <div><b>Date</b>: ${formatDate(ev.date)}</div>
             <div><b>Customer</b>: ${esc(ev.customer || "-")}</div>
             <div><b>Stacking</b>: ${esc(ev.stacking || "-")}</div>
-            <div><b>Movement</b>: ${esc(ev.movement || ev.type)}</div>
+            <div><b>Movement</b>: ${esc(ev.movement || "-")}</div>
+            <div><b>Driver Information</b>: ${esc(driverInfo(ev))}</div>
           </div>
           <button class="btn green small" onclick="openValidate('${ev.id}')">VALIDATE</button>
         </div>
@@ -1181,7 +1175,7 @@
 
     function syncBanner() {
       if (CONFIG.APPS_SCRIPT_URL) {
-        return `<div class="sync-note">Mode online aktif. Data akan dikirim ke Spreadsheet dan photo ke Drive folder yang sudah dikonfigurasi.</div>`;
+        return `<div class="sync-note">Mode online aktif.</div>`;
       }
       return `<div class="sync-note"><b>Mode demo lokal:</b> APPS_SCRIPT_URL belum diisi, sehingga data hanya tersimpan pada browser ini. Untuk dipakai lintas tim Stacking & Equipment, hubungkan ke Google Apps Script Web App.</div>`;
     }
