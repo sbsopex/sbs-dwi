@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SBS - DWI Movement Dashboard</title>
+  <title>SBS - Movement Dashboard DWI/KCN</title>
   <style>
     :root {
       --navy: #111c4e;
@@ -429,6 +429,71 @@
     details.integration summary { cursor: pointer; color: var(--navy); font-weight: 900; }
     code { background: #eef2f7; padding: 1px 5px; border-radius: 5px; }
 
+    .tabs {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 0 0 16px;
+    }
+
+    .tab-btn {
+      border-radius: 999px;
+      padding: 10px 16px;
+      background: #edf2fb;
+      color: var(--navy);
+      font-weight: 900;
+      box-shadow: none;
+    }
+
+    .tab-btn.active {
+      background: var(--navy);
+      color: #fff;
+      box-shadow: 0 8px 20px rgba(17, 28, 78, .16);
+    }
+
+    .stock-table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: 0 8px 24px rgba(17, 28, 78, .07);
+    }
+
+    .stock-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 720px;
+    }
+
+    .stock-table th,
+    .stock-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      font-size: 14px;
+    }
+
+    .stock-table th {
+      background: var(--navy);
+      color: #fff;
+      font-weight: 900;
+    }
+
+    .stock-table tr:last-child td { border-bottom: 0; }
+    .depot-badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 4px 10px;
+      background: var(--yellow-soft);
+      border: 1px solid #e8d72d;
+      color: var(--navy);
+      font-weight: 900;
+      font-size: 12px;
+    }
+
+
     @media (max-width: 820px) {
       .screen { box-shadow: none; }
       .header { align-items: flex-start; }
@@ -469,15 +534,20 @@
       APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbz1aknMLFceng5K9bJDosGNbvIGvbVG96R5cNdPWLuCTsXVAa6390gq3NKst5O9dJUOMw/exec", // isi contoh: https://script.google.com/macros/s/AKfycbxxxx/exec
       HISTORY_DAYS: 30,
       PASSWORDS: {
-        stackdwi: "stacking",
+        stackdwi: "stacking_dwi",
+        stackcn: "stacking_kcn",
         eqp2026: "equipment"
+      },
+      DEPOTS: {
+        DWI: { label: "Stack DWI", title: "SBS - DWI", customers: ["MLII"] },
+        KCN: { label: "Stack KCN", title: "SBS - KCN", customers: ["TWD", "MTR"] }
       }
     };
 
     const STORAGE_KEY = "sbs_dwi_movement_state_v1";
     const SESSION_KEY = "sbs_dwi_session";
 
-    let route = { page: "login", id: null, search: "" };
+    let route = { page: "login", id: null, search: "", depot: "DWI" };
     let currentPhoto = null;
     let validatingEventId = null;
     let pendingContainerPayload = null;
@@ -490,8 +560,14 @@
     function init() {
       cleanupHistory();
       const session = getSession();
-      if (session?.role === "stacking") route.page = "stacking";
-      if (session?.role === "equipment") route.page = "equipment";
+      if (isStackingRole(session?.role)) {
+        route.page = "stacking";
+        route.depot = depotFromRole(session.role);
+      }
+      if (session?.role === "equipment") {
+        route.page = "equipment";
+        route.depot = "DWI";
+      }
       render();
       remoteLoadIfConfigured();
     }
@@ -522,9 +598,40 @@
       sessionStorage.setItem(SESSION_KEY, JSON.stringify({ role, loginAt: new Date().toISOString() }));
     }
 
+
+    function isStackingRole(role) {
+      return role === "stacking_dwi" || role === "stacking_kcn" || role === "stacking";
+    }
+
+    function depotFromRole(role) {
+      if (role === "stacking_kcn") return "KCN";
+      if (role === "stacking_dwi" || role === "stacking") return "DWI";
+      return route.depot || "DWI";
+    }
+
+    function getCurrentDepot() {
+      const session = getSession();
+      if (isStackingRole(session?.role)) return depotFromRole(session.role);
+      return route.depot || "DWI";
+    }
+
+    function depotConfig(depot) {
+      const key = normalizeDepot(depot);
+      return CONFIG.DEPOTS[key] || CONFIG.DEPOTS.DWI;
+    }
+
+    function normalizeDepot(value) {
+      const depot = norm(value || "DWI");
+      return depot === "KCN" ? "KCN" : "DWI";
+    }
+
+    function eventDepot(ev) {
+      return normalizeDepot(ev?.depot || "DWI");
+    }
+
     function logout() {
       sessionStorage.removeItem(SESSION_KEY);
-      route = { page: "login", id: null, search: "" };
+      route = { page: "login", id: null, search: "", depot: "DWI" };
       currentPhoto = null;
       render();
       toast("Berhasil logout.");
@@ -533,15 +640,18 @@
     function cleanupHistory(shouldPersist = true) {
       const cutoff = Date.now() - CONFIG.HISTORY_DAYS * 24 * 60 * 60 * 1000;
       const before = state.events.length;
-      state.events = state.events.filter(ev => {
-        if (ev.type !== "OUT") return true;
+      const containerKeysToDelete = new Set();
+      state.events.forEach(ev => {
+        ev.depot = eventDepot(ev);
+        const isOut = ev.type === "OUT" || norm(ev.movement).startsWith("RP");
         const dateMs = new Date(ev.date).getTime();
-        if (!Number.isFinite(dateMs)) return true;
-        if (dateMs >= cutoff) return true;
-        const container = norm(ev.container);
-        state.events = state.events.filter(inner => norm(inner.container) !== container);
-        return false;
+        if (isOut && Number.isFinite(dateMs) && dateMs < cutoff) {
+          containerKeysToDelete.add(`${eventDepot(ev)}|${norm(ev.container)}`);
+        }
       });
+      if (containerKeysToDelete.size) {
+        state.events = state.events.filter(ev => !containerKeysToDelete.has(`${eventDepot(ev)}|${norm(ev.container)}`));
+      }
       if (shouldPersist && before !== state.events.length) localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     }
 
@@ -551,7 +661,7 @@
         const res = await fetch(`${CONFIG.APPS_SCRIPT_URL}?action=list`, { method: "GET" });
         const data = await res.json();
         if (data && Array.isArray(data.events)) {
-          state.events = data.events;
+          state.events = data.events.map(ev => ({ ...ev, depot: eventDepot(ev) }));
           persist();
           render();
           toast("Data berhasil dimuat dari Spreadsheet.");
@@ -592,6 +702,7 @@
       if (route.page === "info") return renderContainerInfo(route.id);
       if (route.page === "out") return renderContainerOut(route.id);
       if (route.page === "equipment") return renderEquipment();
+      if (route.page === "stock") return renderStock();
       if (route.page === "history") return renderHistory();
       if (route.page === "historyInfo") return renderHistoryInfo(route.id);
       renderLogin();
@@ -620,9 +731,9 @@
         <div class="login-wrap">
           <section class="login-card">
             <img class="login-logo" src="${CONFIG.COMPANY_LOGO}" alt="SBS Logo" onerror="this.style.display='none'" />
-            <p class="eyebrow">SBS DWI Dashboard</p>
+            <p class="eyebrow">SBS Movement Dashboard</p>
             <h1>🔐 Movement Dashboard</h1>
-            <p>Masukkan password untuk masuk ke laman Stacking DWI atau Equipment.</p>
+            <p>Masukkan password untuk masuk ke laman Stack DWI, Stack KCN, atau Equipment.</p>
             <input id="loginPassword" class="input" type="password" placeholder="Enter your password" autocomplete="current-password" onkeydown="if(event.key==='Enter') handleLogin()" />
             <button class="btn full" onclick="handleLogin()">Unlock</button>
             <div id="loginError" class="error"></div>
@@ -641,30 +752,36 @@
         return;
       }
       setSession(role);
-      route = { page: role === "stacking" ? "stacking" : "equipment", id: null, search: "" };
+      if (isStackingRole(role)) {
+        route = { page: "stacking", id: null, search: "", depot: depotFromRole(role) };
+      } else {
+        route = { page: "equipment", id: null, search: "", depot: "DWI" };
+      }
       render();
     }
 
     function renderStacking() {
-      const active = getActiveContainers().filter(item => matchesSearch(item.container));
-      const pending = getPendingEvents();
+      const depot = getCurrentDepot();
+      const cfg = depotConfig(depot);
+      const active = getActiveContainers(depot).filter(item => matchesSearch(item.container));
+      const pending = getPendingEvents(depot);
       layout(
-        "SBS - DWI",
-        "Stacking DWI",
+        cfg.title,
+        cfg.label,
         `<button class="btn blue small" onclick="go('add')">+ ADD CONTAINER</button><button class="btn red small" onclick="logout()">Logout</button>`,
         `
           <div class="toolbar">
             ${searchInput("Search No. Container")}
-            <span class="pill">Local records: ${state.events.length}</span>
+            <span class="pill">Depot: ${depot}</span>
           </div>
           ${syncBanner()}
           <div class="stats">
-            <div class="stat-card"><b>${active.length}</b><span>Container aktif di Stacking</span></div>
+            <div class="stat-card"><b>${active.length}</b><span>Container aktif di ${cfg.label}</span></div>
             <div class="stat-card"><b>${pending.length}</b><span>Menunggu validasi Equipment</span></div>
-            <div class="stat-card"><b>${getHistoryContainers().length}</b><span>History OUT ≤ ${CONFIG.HISTORY_DAYS} hari</span></div>
+            <div class="stat-card"><b>${getHistoryContainers(depot).length}</b><span>History OUT ≤ ${CONFIG.HISTORY_DAYS} hari</span></div>
           </div>
           <div class="list">
-            ${active.length ? active.map(containerCard).join("") : emptyState("Belum ada container aktif. Klik ADD CONTAINER untuk menambahkan data inbound/movement awal.")}
+            ${active.length ? active.map(containerCard).join("") : emptyState(`Belum ada container aktif di ${cfg.label}. Klik ADD CONTAINER untuk menambahkan data inbound/movement awal.`)}
           </div>
         `
       );
@@ -677,6 +794,7 @@
           <div class="card-title">${esc(item.container)}</div>
           <div class="card-meta">
             <div><b>Customer</b>: ${esc(ev.customer || "-")}</div>
+            <div><b>Depot</b>: <span class="depot-badge">${eventDepot(ev)}</span></div>
             <div><b>Stacking</b>: ${esc(ev.stacking || "-")}</div>
             <div><b>Date</b>: ${formatDate(ev.date)}</div>
             <div><b>Movement</b>: ${esc(ev.movement || "IM")}</div>
@@ -690,16 +808,19 @@
 
     function renderAddContainer() {
       currentPhoto = null;
+      const depot = getCurrentDepot();
+      const cfg = depotConfig(depot);
       layout(
-        "SBS - DWI",
-        "Add Container",
+        cfg.title,
+        `Add Container - ${cfg.label}`,
         `<button class="btn light small" onclick="go('stacking')">Back</button><button class="btn red small" onclick="logout()">Logout</button>`,
         `
         <div class="form-page">
           <form class="form-card" onsubmit="submitContainerIn(event)">
             <h2 class="form-title">ADD CONTAINER</h2>
+            <div class="sync-note" style="margin:0 0 10px"><b>Depot:</b> ${depot}</div>
             ${dateField("date", "DATE", nowInputValue())}
-            ${selectField("customer", "CUSTOMER", ["MLII"])}
+            ${selectField("customer", "CUSTOMER", cfg.customers)}
             ${textField("container", "NO. CONTAINER", "Input free text", true)}
             <div class="field">
               <label>DRIVER INFORMATION</label>
@@ -732,8 +853,8 @@
       const payload = collectForm("IN");
       if (!payload.container) return toast("No. Container wajib diisi.");
 
-      if (hasActiveContainer(payload.container)) {
-        return toast(`Container ${payload.container} masih aktif di Stacking, data tidak dibuat double.`);
+      if (hasActiveContainer(payload.container, payload.depot)) {
+        return toast(`Container ${payload.container} masih aktif di ${payload.depot}, data tidak dibuat double.`);
       }
 
       pendingContainerPayload = payload;
@@ -745,8 +866,9 @@
       document.getElementById("modalRoot").innerHTML = `
         <div class="modal">
           <h3>Apakah data container sudah sesuai?</h3>
-          <p class="modal-text">Pastikan nomor container sudah benar sebelum submit.</p>
+          <p class="modal-text">Pastikan nomor container dan depot sudah benar sebelum submit.</p>
           <div class="confirm-number">${esc(payload.container)}</div>
+          <p class="modal-text"><b>Depot:</b> ${esc(payload.depot)}</p>
           <div class="modal-actions">
             <button id="confirmSubmitInBtn" class="btn green" onclick="confirmContainerInSubmit()">Ya, Submit</button>
             <button class="btn light" onclick="closeModal()">Cek Ulang / Revisi</button>
@@ -760,9 +882,9 @@
       const payload = pendingContainerPayload;
       if (!payload) return closeModal();
 
-      if (hasActiveContainer(payload.container) || state.events.some(ev => ev.id === payload.id || ev.clientKey === payload.clientKey)) {
+      if (hasActiveContainer(payload.container, payload.depot) || state.events.some(ev => ev.id === payload.id || ev.clientKey === payload.clientKey)) {
         closeModal();
-        return toast(`Container ${payload.container} sudah pernah disubmit, data tidak dibuat double.`);
+        return toast(`Container ${payload.container} sudah pernah disubmit di ${payload.depot}, data tidak dibuat double.`);
       }
 
       isSubmitting = true;
@@ -777,9 +899,9 @@
       pendingContainerPayload = null;
       currentPhoto = null;
       closeModal();
-      route = { page: "stacking", id: null, search: "" };
+      route = { page: "stacking", id: null, search: "", depot: payload.depot };
       render();
-      toast("Container berhasil ditambahkan dan masuk ke task Equipment.");
+      toast(`Container berhasil ditambahkan ke ${payload.depot} dan masuk ke task Equipment.`);
 
       remoteSaveEvent(payload)
         .then(() => { if (route.page === "stacking") render(); })
@@ -789,8 +911,9 @@
     function renderContainerInfo(eventId) {
       const ev = state.events.find(e => e.id === eventId);
       if (!ev) return go("stacking");
+      const depot = eventDepot(ev);
       layout(
-        "SBS - DWI",
+        depotConfig(depot).title,
         "Container Info",
         `<button class="btn red small" onclick="logout()">Logout</button>`,
         `
@@ -802,6 +925,8 @@
                   ${infoLine("Date IN", formatDate(ev.date))}
                   ${infoLine("Durasi", durationText(ev.date))}
                   ${infoLine("No. Container", ev.container)}
+                  ${infoLine("Customer", ev.customer)}
+                  ${infoLine("Depot", depot)}
                   ${infoLine("Info Driver", driverInfo(ev))}
                   ${infoLine("Stacking IN", ev.stacking)}
                   ${infoLine("Equipment IN", ev.equipmentName || "Pending Validate")}
@@ -822,16 +947,19 @@
       const inEv = state.events.find(e => e.id === inEventId);
       if (!inEv) return go("stacking");
       currentPhoto = null;
+      const depot = eventDepot(inEv);
+      const cfg = depotConfig(depot);
       layout(
-        "SBS - DWI",
-        "Container Out",
+        cfg.title,
+        `Container Out - ${depot}`,
         `<button class="btn light small" onclick="go('info', '${inEventId}')">Back</button><button class="btn red small" onclick="logout()">Logout</button>`,
         `
         <div class="form-page">
           <form class="form-card" onsubmit="submitContainerOut(event, '${inEventId}')">
             <h2 class="form-title">CONTAINER OUT</h2>
+            <div class="sync-note" style="margin:0 0 10px"><b>Depot:</b> ${depot}</div>
             ${dateField("date", "DATE", nowInputValue())}
-            ${selectField("customer", "CUSTOMER", ["MLII"], inEv.customer || "MLII")}
+            ${selectField("customer", "CUSTOMER", cfg.customers, inEv.customer || cfg.customers[0])}
             ${textField("container", "NO. CONTAINER", "Input free text", true, inEv.container)}
             <div class="field">
               <label>DRIVER INFORMATION</label>
@@ -852,7 +980,7 @@
           </form>
           <div>
             <div class="preview-box" id="photoPreview">Photo Preview</div>
-            <div class="sync-note">Setelah submit OUT, container tidak tampil lagi di laman Stacking DWI dan langsung masuk task validasi Equipment.</div>
+            <div class="sync-note">Setelah submit OUT, container tidak tampil lagi di laman ${cfg.label} dan langsung masuk task validasi Equipment.</div>
           </div>
         </div>`
       );
@@ -865,6 +993,7 @@
       const inEv = state.events.find(e => e.id === inEventId);
       const payload = collectForm("OUT");
       payload.relatedInId = inEventId;
+      payload.depot = eventDepot(inEv);
       payload.container = (payload.container || inEv?.container || "").toUpperCase();
       payload.clientKey = buildClientKey(payload);
 
@@ -880,30 +1009,127 @@
 
       state.events.push(payload);
       persist();
-      route = { page: "stacking", id: null, search: "" };
+      route = { page: "stacking", id: null, search: "", depot: payload.depot };
       currentPhoto = null;
       render();
-      toast("Container OUT berhasil disubmit dan masuk ke task Equipment.");
+      toast(`Container OUT ${payload.depot} berhasil disubmit dan masuk ke task Equipment.`);
 
       remoteSaveEvent(payload)
         .then(() => { if (route.page === "stacking") render(); })
         .finally(() => { isSubmitting = false; });
     }
 
-    function renderEquipment() {
-      const pending = getPendingEvents().filter(ev => matchesSearch(ev.container));
+
+    function equipmentDepotTabs(active, targetPage = "equipment") {
+      const tabs = ["DWI", "KCN"];
+      if (targetPage === "stock" || targetPage === "history") tabs.unshift("ALL");
+      const activeKey = active === "ALL" ? "ALL" : normalizeDepot(active);
+      return `<div class="tabs">${tabs.map(dep => {
+        const label = dep === "ALL" ? "ALL" : dep;
+        const activeClass = activeKey === dep ? "active" : "";
+        return `<button class="tab-btn ${activeClass}" onclick="go('${targetPage}', null, '${dep}')">${label}</button>`;
+      }).join("")}</div>`;
+    }
+
+    function renderStock() {
+      const depotFilter = route.depot || "ALL";
+      const stock = getActiveContainers(depotFilter).filter(item => matchesSearch(item.container));
       layout(
-        "SBS - DWI",
-        "Equipment Task",
-        `<button class="btn yellow small" onclick="go('history')">History</button><button class="btn red small" onclick="logout()">Logout</button>`,
+        "SBS - EQP",
+        "Stock Container Aktif",
+        `<button class="btn green small" onclick="downloadStockExcel()">Download Excel</button><button class="btn light small" onclick="go('equipment')">Back to Task</button><button class="btn yellow small" onclick="go('history')">History</button><button class="btn red small" onclick="logout()">Logout</button>`,
         `
+          ${equipmentDepotTabs(depotFilter, "stock")}
           <div class="toolbar">
             ${searchInput("Search No. Container")}
-            <span class="pill">Pending Validate: ${pending.length}</span>
+            <span class="pill">Stock ${depotFilter}: ${stock.length}</span>
+          </div>
+          <div class="stock-table-wrap">
+            <table class="stock-table">
+              <thead><tr><th>No</th><th>Date</th><th>Container</th><th>Customer</th><th>Depot</th></tr></thead>
+              <tbody>
+                ${stock.length ? stock.map((item, index) => stockRow(item, index)).join("") : `<tr><td colspan="5">Tidak ada stock container aktif.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        `
+      );
+    }
+
+    function stockRow(item, index) {
+      const ev = item.inEvent || {};
+      return `<tr><td>${index + 1}</td><td>${formatDate(ev.date)}</td><td><b>${esc(item.container)}</b></td><td>${esc(ev.customer || "-")}</td><td><span class="depot-badge">${eventDepot(ev)}</span></td></tr>`;
+    }
+
+
+    function downloadStockExcel() {
+      const depotFilter = route.depot || "ALL";
+      const stock = getActiveContainers(depotFilter).filter(item => matchesSearch(item.container));
+      const title = `Stock Container ${depotFilter}`;
+      const generatedAt = formatDate(new Date().toISOString());
+      const rows = stock.map((item, index) => {
+        const ev = item.inEvent || {};
+        return [
+          index + 1,
+          formatDate(ev.date),
+          item.container || "",
+          ev.customer || "",
+          eventDepot(ev)
+        ];
+      });
+
+      const html = `
+        <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+        <head><meta charset="UTF-8"></head>
+        <body>
+          <table border="1">
+            <tr><th colspan="5" style="font-size:16pt;background:#111c4e;color:white;">${excelEsc(title)}</th></tr>
+            <tr><td colspan="5">Generated at: ${excelEsc(generatedAt)}</td></tr>
+            <tr><td colspan="5">Filter: ${excelEsc(depotFilter)}${route.search ? ` | Search: ${excelEsc(route.search)}` : ""}</td></tr>
+            <tr style="background:#111c4e;color:white;font-weight:bold;"><th>No</th><th>Date</th><th>Container</th><th>Customer</th><th>Depot</th></tr>
+            ${rows.length ? rows.map(row => `<tr>${row.map(cell => `<td>${excelEsc(cell)}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="5">Tidak ada stock container aktif.</td></tr>`}
+          </table>
+        </body></html>`;
+
+      const blob = new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" });
+      const fileName = `Stock_Container_${depotFilter}_${fileDateStamp()}.xls`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast(`Stock berhasil didownload: ${fileName}`);
+    }
+
+    function excelEsc(value) {
+      return String(value ?? "").replace(/[&<>]/g, ch => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;" }[ch]));
+    }
+
+    function fileDateStamp() {
+      const d = new Date();
+      const pad = n => String(n).padStart(2, "0");
+      return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
+    }
+
+    function renderEquipment() {
+      const depot = normalizeDepot(route.depot || "DWI");
+      const pending = getPendingEvents(depot).filter(ev => matchesSearch(ev.container));
+      layout(
+        "SBS - EQP",
+        `Equipment Task - ${depot}`,
+        `<button class="btn blue small" onclick="go('stock', null, 'ALL')">Stock</button><button class="btn yellow small" onclick="go('history')">History</button><button class="btn red small" onclick="logout()">Logout</button>`,
+        `
+          ${equipmentDepotTabs(depot)}
+          <div class="toolbar">
+            ${searchInput("Search No. Container")}
+            <span class="pill">Pending Validate ${depot}: ${pending.length}</span>
           </div>
           ${syncBanner()}
           <div class="list">
-            ${pending.length ? pending.map(taskCard).join("") : emptyState("Tidak ada task validasi Equipment saat ini.")}
+            ${pending.length ? pending.map(taskCard).join("") : emptyState(`Tidak ada task validasi Equipment untuk ${depot} saat ini.`)}
           </div>
         `
       );
@@ -916,6 +1142,7 @@
           <div class="card-meta">
             <div><b>Date</b>: ${formatDate(ev.date)}</div>
             <div><b>Customer</b>: ${esc(ev.customer || "-")}</div>
+            <div><b>Depot</b>: <span class="depot-badge">${eventDepot(ev)}</span></div>
             <div><b>Stacking</b>: ${esc(ev.stacking || "-")}</div>
             <div><b>Movement</b>: ${esc(ev.movement || "-")}</div>
             <div><b>Driver Information</b>: ${esc(driverInfo(ev))}</div>
@@ -962,7 +1189,7 @@
 
       if (ev.status === "validated") {
         closeModal();
-        route = { page: "equipment", id: null, search: route.search || "" };
+        route = { page: "equipment", id: null, search: route.search || "", depot: eventDepot(ev) };
         render();
         return toast("Task ini sudah divalidasi sebelumnya.");
       }
@@ -975,13 +1202,14 @@
       }
 
       ev.status = "validated";
+      ev.depot = eventDepot(ev);
       ev.equipmentName = name;
       ev.validatedAt = new Date().toISOString();
       ev.clientKey = ev.clientKey || buildClientKey(ev);
       persist();
 
       closeModal();
-      route = { page: "equipment", id: null, search: route.search || "" };
+      route = { page: "equipment", id: null, search: route.search || "", depot: eventDepot(ev) };
       render();
       toast("Task sudah divalidasi oleh Equipment.");
 
@@ -999,12 +1227,14 @@
     }
 
     function renderHistory() {
-      const history = getHistoryContainers().filter(item => matchesSearch(item.container));
+      const depotFilter = route.depot || "ALL";
+      const history = getHistoryContainers(depotFilter).filter(item => matchesSearch(item.container));
       layout(
-        "HISTORY SBS - DWI",
+        "HISTORY SBS - EQP",
         `Container OUT maksimal ${CONFIG.HISTORY_DAYS} hari`,
         `<button class="btn red small" onclick="go('equipment')">BACK</button><button class="btn red small" onclick="logout()">Logout</button>`,
         `
+          ${equipmentDepotTabs(depotFilter, "history")}
           <div class="toolbar">${searchInput("Search No. Container")}</div>
           <div class="list">
             ${history.length ? history.map(historyCard).join("") : emptyState("Belum ada history container OUT yang sudah divalidasi Equipment.")}
@@ -1015,21 +1245,21 @@
 
     function historyCard(item) {
       return `
-        <button class="history-card" onclick="go('historyInfo', '${item.container}')">
-          <div class="card-title">${esc(item.container)}</div>
+        <button class="history-card" onclick="go('historyInfo', '${item.key || item.container}')">
+          <div class="card-title">${esc(item.container)} <span class="depot-badge">${esc(item.depot)}</span></div>
           <div><b>Date IN</b> : ${formatDate(item.inEvent?.date)}</div>
           <div><b>Date OUT</b> : ${formatDate(item.outEvent?.date)}</div>
         </button>
       `;
     }
 
-    function renderHistoryInfo(containerNo) {
-      const item = getHistoryContainers().find(h => norm(h.container) === norm(containerNo));
+    function renderHistoryInfo(containerKey) {
+      const item = getHistoryContainers("ALL").find(h => norm(h.key) === norm(containerKey) || norm(h.container) === norm(containerKey));
       if (!item) return go("history");
       const inEv = item.inEvent;
       const outEv = item.outEvent;
       layout(
-        "SBS - DWI",
+        "SBS - EQP",
         "History Container Info",
         `<button class="btn red small" onclick="logout()">Logout</button>`,
         `
@@ -1040,6 +1270,8 @@
                 <div class="split-section">
                   ${infoLine("Date IN", formatDate(inEv?.date))}
                   ${infoLine("No. Container", item.container)}
+                  ${infoLine("Customer", inEv?.customer || "-")}
+                  ${infoLine("Depot", item.depot)}
                   ${infoLine("Info Driver", driverInfo(inEv))}
                   ${infoLine("Stacking IN", inEv?.stacking || "-")}
                   ${infoLine("Equipment IN", inEv?.equipmentName || "-")}
@@ -1047,6 +1279,8 @@
                 <div class="split-section">
                   ${infoLine("Date OUT", formatDate(outEv?.date))}
                   ${infoLine("No. Container", item.container)}
+                  ${infoLine("Customer", outEv?.customer || "-")}
+                  ${infoLine("Depot", item.depot)}
                   ${infoLine("Info Driver", driverInfo(outEv))}
                   ${infoLine("Stacking OUT", outEv?.stacking || "-")}
                   ${infoLine("Equipment OUT", outEv?.equipmentName || "-")}
@@ -1067,9 +1301,11 @@
       const container = getVal("container").toUpperCase().replace(/\s+/g, "");
       const movement = getVal("movement") || (type === "IN" ? "IM" : "RP");
       const date = document.getElementById("date")?.value || nowInputValue();
+      const depot = getCurrentDepot();
       const payload = {
         id: cryptoRandomId(),
         type,
+        depot,
         date: normalizeDateInput(date),
         customer: getVal("customer"),
         container,
@@ -1092,8 +1328,8 @@
       return payload;
     }
 
-    function hasActiveContainer(container) {
-      return getActiveContainers().some(item => norm(item.container) === norm(container));
+    function hasActiveContainer(container, depot = "ALL") {
+      return getActiveContainers(depot).some(item => norm(item.container) === norm(container));
     }
 
     function hasOutForInEvent(inEventId) {
@@ -1103,51 +1339,60 @@
       });
     }
 
-    function getActiveContainers() {
+    function getActiveContainers(depotFilter = "ALL") {
+      const filter = depotFilter || "ALL";
       const map = new Map();
       const sorted = [...state.events].sort((a,b) => new Date(a.date) - new Date(b.date));
       sorted.forEach(ev => {
-        const key = norm(ev.container);
-        if (!key) return;
-        if (ev.type === "IN" || norm(ev.movement) === "IM") {
-          map.set(key, { container: ev.container, inEvent: ev, outEvent: null });
+        ev.depot = eventDepot(ev);
+        const key = `${eventDepot(ev)}|${norm(ev.container)}`;
+        if (!norm(ev.container)) return;
+        if (ev.type === "IN" || norm(ev.movement).startsWith("IM")) {
+          map.set(key, { key, depot: eventDepot(ev), container: ev.container, inEvent: ev, outEvent: null });
         }
-        if (ev.type === "OUT" || norm(ev.movement) === "RP") {
-          const item = map.get(key) || { container: ev.container, inEvent: null, outEvent: null };
+        if (ev.type === "OUT" || norm(ev.movement).startsWith("RP")) {
+          const item = map.get(key) || { key, depot: eventDepot(ev), container: ev.container, inEvent: null, outEvent: null };
           item.outEvent = ev;
           map.set(key, item);
         }
       });
       return [...map.values()]
         .filter(item => item.inEvent && !item.outEvent)
+        .filter(item => filter === "ALL" || item.depot === normalizeDepot(filter))
         .sort((a,b) => new Date(b.inEvent.date) - new Date(a.inEvent.date));
     }
 
-    function getPendingEvents() {
+    function getPendingEvents(depotFilter = "ALL") {
+      const filter = depotFilter || "ALL";
       return state.events
+        .map(ev => ({ ...ev, depot: eventDepot(ev) }))
         .filter(ev => ev.status !== "validated")
+        .filter(ev => filter === "ALL" || eventDepot(ev) === normalizeDepot(filter))
         .sort((a,b) => new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date));
     }
 
-    function getHistoryContainers() {
+    function getHistoryContainers(depotFilter = "ALL") {
+      const filter = depotFilter || "ALL";
       const groups = new Map();
       const cutoff = Date.now() - CONFIG.HISTORY_DAYS * 24 * 60 * 60 * 1000;
       [...state.events].sort((a,b) => new Date(a.date) - new Date(b.date)).forEach(ev => {
-        const key = norm(ev.container);
-        if (!key) return;
-        if (!groups.has(key)) groups.set(key, { container: ev.container, inEvent: null, outEvent: null });
+        ev.depot = eventDepot(ev);
+        const key = `${eventDepot(ev)}|${norm(ev.container)}`;
+        if (!norm(ev.container)) return;
+        if (!groups.has(key)) groups.set(key, { key, depot: eventDepot(ev), container: ev.container, inEvent: null, outEvent: null });
         const g = groups.get(key);
-        if (ev.type === "IN" || norm(ev.movement) === "IM") g.inEvent = ev;
-        if ((ev.type === "OUT" || norm(ev.movement) === "RP") && ev.status === "validated") g.outEvent = ev;
+        if (ev.type === "IN" || norm(ev.movement).startsWith("IM")) g.inEvent = ev;
+        if ((ev.type === "OUT" || norm(ev.movement).startsWith("RP")) && ev.status === "validated") g.outEvent = ev;
       });
       return [...groups.values()]
         .filter(g => g.inEvent && g.outEvent)
+        .filter(g => filter === "ALL" || g.depot === normalizeDepot(filter))
         .filter(g => new Date(g.outEvent.date).getTime() >= cutoff)
         .sort((a,b) => new Date(b.outEvent.date) - new Date(a.outEvent.date));
     }
 
-    function go(page, id = null) {
-      route = { page, id, search: route.search || "" };
+    function go(page, id = null, depot = null) {
+      route = { page, id, search: route.search || "", depot: depot || route.depot || "DWI" };
       render();
     }
 
@@ -1250,9 +1495,30 @@
 
     function photoMarkup(ev, fallback) {
       if (!ev) return esc(fallback || "Photo");
-      if (ev.photoLink) return `<a href="${esc(ev.photoLink)}" target="_blank" rel="noopener">Open Photo</a>`;
       if (ev.photoDataUrl) return `<img src="${ev.photoDataUrl}" alt="${esc(ev.photoName || fallback || "Photo")}" />`;
+      if (ev.photoLink) {
+        const previewUrl = getPhotoPreviewUrl(ev.photoLink);
+        return `<img src="${esc(previewUrl)}" alt="${esc(ev.photoName || fallback || "Photo")}" loading="lazy" referrerpolicy="no-referrer" onerror="this.outerHTML='${esc(fallback || "Photo")}';" />`;
+      }
       return esc(fallback || "Photo");
+    }
+
+    function getPhotoPreviewUrl(link) {
+      const raw = String(link || "").trim();
+      const driveId = extractDriveFileId(raw);
+      if (driveId) return `https://drive.google.com/thumbnail?id=${encodeURIComponent(driveId)}&sz=w1000`;
+      return raw;
+    }
+
+    function extractDriveFileId(link) {
+      const raw = String(link || "");
+      const byPath = raw.match(/\/d\/([a-zA-Z0-9_-]{10,})/);
+      if (byPath) return byPath[1];
+      const byId = raw.match(/[?&]id=([a-zA-Z0-9_-]{10,})/);
+      if (byId) return byId[1];
+      const openId = raw.match(/open\?id=([a-zA-Z0-9_-]{10,})/);
+      if (openId) return openId[1];
+      return "";
     }
 
     function driverInfo(ev) {
@@ -1291,14 +1557,15 @@
     }
 
     function buildClientKey(event) {
+      const depot = eventDepot(event);
       const container = norm(event?.container);
-      const type = norm(event?.type || (norm(event?.movement) === "RP" ? "OUT" : "IN"));
+      const type = norm(event?.type || (norm(event?.movement).startsWith("RP") ? "OUT" : "IN"));
       const movement = norm(event?.movement);
       const related = norm(event?.relatedInId);
       let dateKey = "";
       const d = new Date(event?.date || "");
       if (Number.isFinite(d.getTime())) dateKey = d.toISOString().slice(0, 16);
-      return [container, type, movement, related, dateKey].join("|");
+      return [depot, container, type, movement, related, dateKey].join("|");
     }
 
     function buildPhotoName(container, movement, dateValue) {
