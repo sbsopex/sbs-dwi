@@ -224,6 +224,7 @@
 
     .history-card { grid-template-columns: minmax(120px, 1fr) minmax(160px, 1fr) minmax(160px, 1fr); cursor: pointer; }
     .task-card { grid-template-columns: minmax(130px, 1fr) minmax(260px, 2fr) 120px; }
+    .task-actions { display: grid; gap: 8px; }
     .container-card { cursor: pointer; }
 
     .card-title {
@@ -540,7 +541,7 @@
       },
       DEPOTS: {
         DWI: { label: "Stack DWI", title: "SBS - DWI", customers: ["MLII"] },
-        KCN: { label: "Stack KCN", title: "SBS - KCN", customers: ["TWD", "MTR","MLII","SFI","LAINNYA"] }
+        KCN: { label: "Stack KCN", title: "SBS - KCN", customers: ["TWD", "MTR", "OTHERS"] }
       }
     };
 
@@ -553,6 +554,7 @@
     let pendingContainerPayload = null;
     let isSubmitting = false;
     let isValidating = false;
+    let isDeleting = false;
     let state = loadLocalState();
 
     document.addEventListener("DOMContentLoaded", init);
@@ -694,6 +696,24 @@
       }
     }
 
+    async function remoteDeleteEvent(event) {
+      if (!CONFIG.APPS_SCRIPT_URL) return { ok: false, localOnly: true };
+      try {
+        const res = await fetch(CONFIG.APPS_SCRIPT_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({ action: "deleteEvent", id: event.id, clientKey: event.clientKey, event })
+        });
+        const data = await res.json();
+        if (!data?.ok) throw new Error(data?.message || "Delete gagal");
+        return { ok: true, data };
+      } catch (error) {
+        console.warn("Remote delete failed", error);
+        toast("Task terhapus lokal, namun delete ke Spreadsheet belum berhasil. Cek Apps Script terbaru.");
+        return { ok: false, error };
+      }
+    }
+
     function render() {
       const session = getSession();
       if (!session) return renderLogin();
@@ -820,7 +840,7 @@
             <h2 class="form-title">ADD CONTAINER</h2>
             <div class="sync-note" style="margin:0 0 10px"><b>Depot:</b> ${depot}</div>
             ${dateField("date", "DATE", nowInputValue())}
-            ${selectField("customer", "CUSTOMER", cfg.customers)}
+            ${customerField("customer", "CUSTOMER", cfg.customers)}
             ${textField("container", "NO. CONTAINER", "Input free text", true)}
             <div class="field">
               <label>DRIVER INFORMATION</label>
@@ -851,6 +871,7 @@
       if (isSubmitting) return;
 
       const payload = collectForm("IN");
+      if (!payload.customer) return toast("Customer wajib diisi. Jika pilih OTHERS, isi nama customer manual.");
       if (!payload.container) return toast("No. Container wajib diisi.");
 
       if (hasActiveContainer(payload.container, payload.depot)) {
@@ -959,7 +980,7 @@
             <h2 class="form-title">CONTAINER OUT</h2>
             <div class="sync-note" style="margin:0 0 10px"><b>Depot:</b> ${depot}</div>
             ${dateField("date", "DATE", nowInputValue())}
-            ${selectField("customer", "CUSTOMER", cfg.customers, inEv.customer || cfg.customers[0])}
+            ${customerField("customer", "CUSTOMER", cfg.customers, inEv.customer || cfg.customers[0])}
             ${textField("container", "NO. CONTAINER", "Input free text", true, inEv.container)}
             <div class="field">
               <label>DRIVER INFORMATION</label>
@@ -997,6 +1018,7 @@
       payload.container = (payload.container || inEv?.container || "").toUpperCase();
       payload.clientKey = buildClientKey(payload);
 
+      if (!payload.customer) return toast("Customer wajib diisi. Jika pilih OTHERS, isi nama customer manual.");
       if (!payload.container) return toast("No. Container wajib diisi.");
       if (hasOutForInEvent(inEventId)) return toast(`Container ${payload.container} sudah pernah OUT, data tidak dibuat double.`);
 
@@ -1147,7 +1169,10 @@
             <div><b>Movement</b>: ${esc(ev.movement || "-")}</div>
             <div><b>Driver Information</b>: ${esc(driverInfo(ev))}</div>
           </div>
-          <button class="btn green small" onclick="openValidate('${ev.id}')">VALIDATE</button>
+          <div class="task-actions">
+            <button class="btn green small" onclick="openValidate('${ev.id}')">VALIDATE</button>
+            <button class="btn red small" onclick="openDeleteTask('${ev.id}')">DELETE</button>
+          </div>
         </div>
       `;
     }
@@ -1161,6 +1186,7 @@
           <div class="modal-actions">
             <button class="btn green" onclick="showEquipmentNameModal()">Sudah</button>
             <button class="btn red" onclick="closeModal()">Belum</button>
+            <button class="btn light" onclick="openDeleteTask(validatingEventId)">Delete Task</button>
           </div>
         </div>
       `;
@@ -1216,6 +1242,50 @@
       remoteSaveEvent(ev)
         .then(() => { if (route.page === "equipment") render(); })
         .finally(() => { isValidating = false; });
+    }
+
+    function openDeleteTask(eventId) {
+      const ev = state.events.find(e => e.id === eventId);
+      if (!ev) return toast("Task tidak ditemukan.");
+      validatingEventId = eventId;
+      document.getElementById("modalRoot").className = "modal-backdrop active";
+      document.getElementById("modalRoot").innerHTML = `
+        <div class="modal">
+          <h3>Delete task dari sistem?</h3>
+          <p class="modal-text">Gunakan fitur ini jika nomor container salah atau task tidak valid.</p>
+          <div class="confirm-number">${esc(ev.container)}</div>
+          <p class="modal-text"><b>Customer:</b> ${esc(ev.customer || "-")}<br><b>Depot:</b> ${esc(eventDepot(ev))}<br><b>Movement:</b> ${esc(ev.movement || "-")}</p>
+          <div class="modal-actions">
+            <button id="deleteTaskBtn" class="btn red" onclick="confirmDeleteTask()">Ya, Delete</button>
+            <button class="btn light" onclick="closeModal()">Cancel</button>
+          </div>
+        </div>
+      `;
+    }
+
+    async function confirmDeleteTask() {
+      if (isDeleting) return;
+      const ev = state.events.find(e => e.id === validatingEventId);
+      if (!ev) return closeModal();
+
+      isDeleting = true;
+      const btn = document.getElementById("deleteTaskBtn");
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Deleting...";
+      }
+
+      const deletedDepot = eventDepot(ev);
+      state.events = state.events.filter(item => item.id !== ev.id);
+      persist();
+      closeModal();
+      route = { page: "equipment", id: null, search: route.search || "", depot: deletedDepot };
+      render();
+      toast(`Task ${ev.container} berhasil dihapus dari sistem.`);
+
+      remoteDeleteEvent(ev)
+        .then((result) => { if (result.ok && route.page === "equipment") remoteLoadIfConfigured(); })
+        .finally(() => { isDeleting = false; });
     }
 
     function closeModal() {
@@ -1307,7 +1377,7 @@
         type,
         depot,
         date: normalizeDateInput(date),
-        customer: getVal("customer"),
+        customer: getCustomerFromForm(),
         container,
         noPlat: getVal("noPlat"),
         driverName: getVal("driverName"),
@@ -1435,6 +1505,41 @@
 
     function dateField(id, label, value) {
       return `<div class="field"><label for="${id}">${label}</label><input id="${id}" class="input" type="datetime-local" value="${esc(value)}" required /></div>`;
+    }
+
+    function customerField(id, label, options, selected = "") {
+      const hasSelected = options.some(opt => norm(opt) === norm(selected));
+      const selectedValue = selected && !hasSelected ? "OTHERS" : (selected || options[0] || "");
+      const manualValue = selected && !hasSelected ? selected : "";
+      const showManual = isOtherCustomerValue(selectedValue);
+      return `
+        <div class="field">
+          <label for="${id}">${label}</label>
+          <select id="${id}" class="select" onchange="toggleCustomerManual()" required>
+            ${options.map(opt => `<option value="${esc(opt)}" ${norm(opt) === norm(selectedValue) ? "selected" : ""}>${esc(opt)}</option>`).join("")}
+          </select>
+          <input id="customerManual" class="input" type="text" placeholder="Input customer lainnya" value="${esc(manualValue)}" style="margin-top:8px; display:${showManual ? "block" : "none"}" />
+        </div>`;
+    }
+
+    function toggleCustomerManual() {
+      const manual = document.getElementById("customerManual");
+      if (!manual) return;
+      const selected = getVal("customer");
+      manual.style.display = isOtherCustomerValue(selected) ? "block" : "none";
+      if (!isOtherCustomerValue(selected)) manual.value = "";
+      if (isOtherCustomerValue(selected)) manual.focus();
+    }
+
+    function isOtherCustomerValue(value) {
+      const v = norm(value);
+      return v === "OTHERS" || v === "OTHER" || v === "LAINNYA" || v === "OTHER CUSTOMER";
+    }
+
+    function getCustomerFromForm() {
+      const selected = getVal("customer");
+      if (isOtherCustomerValue(selected)) return getVal("customerManual").toUpperCase();
+      return selected;
     }
 
     function selectField(id, label, options, selected = "") {
