@@ -495,6 +495,45 @@
     }
 
 
+
+    .task-actions {
+      display: grid;
+      gap: 8px;
+      justify-items: stretch;
+    }
+
+    .opname-panel {
+      background: #f8fbff;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 8px 24px rgba(17, 28, 78, .06);
+    }
+
+    .opname-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .opname-check {
+      width: 22px;
+      height: 22px;
+      cursor: pointer;
+    }
+
+    .opname-missing {
+      margin-top: 16px;
+    }
+
+    .muted-small {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
     @media (max-width: 820px) {
       .screen { box-shadow: none; }
       .header { align-items: flex-start; }
@@ -506,6 +545,8 @@
       .info-photo { min-height: 240px; }
       .card-meta { grid-template-columns: 1fr; }
       .content { padding: 14px; }
+      .opname-grid { grid-template-columns: 1fr; }
+      .task-actions { justify-items: start; }
     }
   </style>
 </head>
@@ -514,6 +555,7 @@
   <div id="modalRoot" class="modal-backdrop"></div>
   <div id="toast" class="toast"></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script>
     /**********************************************************************
      * SBS - DWI Movement Dashboard
@@ -537,11 +579,12 @@
       PASSWORDS: {
         stackdwi: "stacking_dwi",
         stackcn: "stacking_kcn",
-        eqp2026: "equipment"
+        eqp2026: "equipment",
+        stock2026: "stock_opname"
       },
       DEPOTS: {
         DWI: { label: "Stack DWI", title: "SBS - DWI", customers: ["MLII"] },
-        KCN: { label: "Stack KCN", title: "SBS - KCN", customers: ["TWD", "MTR", "OTHERS"] }
+        KCN: { label: "Stack KCN", title: "SBS - KCN", customers: ["TWD", "MTR", "SFI", "OTHERS"] }
       }
     };
 
@@ -570,6 +613,10 @@
         route.page = "equipment";
         route.depot = "DWI";
       }
+      if (session?.role === "stock_opname") {
+        route.page = "stockOpname";
+        route.depot = "DWI";
+      }
       render();
       remoteLoadIfConfigured();
     }
@@ -577,13 +624,21 @@
     function loadLocalState() {
       try {
         const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return { events: [] };
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed.events)) return { events: [] };
-        return parsed;
+        const parsed = raw ? JSON.parse(raw) : {};
+        return normalizeLocalState(parsed);
       } catch (error) {
-        return { events: [] };
+        return normalizeLocalState({});
       }
+    }
+
+    function normalizeLocalState(parsed) {
+      const safe = parsed && typeof parsed === "object" ? parsed : {};
+      return {
+        events: Array.isArray(safe.events) ? safe.events : [],
+        opnameStock: Array.isArray(safe.opnameStock) ? safe.opnameStock : [],
+        opnameMissing: Array.isArray(safe.opnameMissing) ? safe.opnameMissing : [],
+        opnameChecks: safe.opnameChecks && typeof safe.opnameChecks === "object" ? safe.opnameChecks : {}
+      };
     }
 
     function persist() {
@@ -664,6 +719,9 @@
         const data = await res.json();
         if (data && Array.isArray(data.events)) {
           state.events = data.events.map(ev => ({ ...ev, depot: eventDepot(ev) }));
+          if (Array.isArray(data.opnameStock)) {
+            state.opnameStock = data.opnameStock.map(row => ({ ...row, depot: eventDepot(row) }));
+          }
           persist();
           render();
           toast("Data berhasil dimuat dari Spreadsheet.");
@@ -714,6 +772,28 @@
       }
     }
 
+    async function remoteSaveOpnameStock(depot, rows, sourceFile = "") {
+      if (!CONFIG.APPS_SCRIPT_URL) return { ok: false, localOnly: true };
+      try {
+        const res = await fetch(CONFIG.APPS_SCRIPT_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({ action: "saveOpnameStock", depot, rows, sourceFile, sheetId: CONFIG.SHEET_ID })
+        });
+        const data = await res.json();
+        if (!data?.ok) throw new Error(data?.message || "Save stock opname gagal");
+        if (Array.isArray(data.opnameStock)) {
+          state.opnameStock = data.opnameStock.map(row => ({ ...row, depot: eventDepot(row) }));
+          persist();
+        }
+        return { ok: true, data };
+      } catch (error) {
+        console.warn("Remote opname stock save failed", error);
+        toast("Stock opname tersimpan lokal, namun belum tersimpan ke worksheet. Cek Apps Script terbaru.");
+        return { ok: false, error };
+      }
+    }
+
     function render() {
       const session = getSession();
       if (!session) return renderLogin();
@@ -723,6 +803,7 @@
       if (route.page === "out") return renderContainerOut(route.id);
       if (route.page === "equipment") return renderEquipment();
       if (route.page === "stock") return renderStock();
+      if (route.page === "stockOpname") return renderStockOpname();
       if (route.page === "history") return renderHistory();
       if (route.page === "historyInfo") return renderHistoryInfo(route.id);
       renderLogin();
@@ -753,7 +834,7 @@
             <img class="login-logo" src="${CONFIG.COMPANY_LOGO}" alt="SBS Logo" onerror="this.style.display='none'" />
             <p class="eyebrow">SBS Movement Dashboard</p>
             <h1>🔐 Movement Dashboard</h1>
-            <p>Masukkan password untuk masuk ke laman Stack DWI, Stack KCN, atau Equipment.</p>
+            <p>Masukkan password untuk masuk ke laman Stack DWI, Stack KCN, Equipment, atau Stock Opname.</p>
             <input id="loginPassword" class="input" type="password" placeholder="Enter your password" autocomplete="current-password" onkeydown="if(event.key==='Enter') handleLogin()" />
             <button class="btn full" onclick="handleLogin()">Unlock</button>
             <div id="loginError" class="error"></div>
@@ -774,6 +855,8 @@
       setSession(role);
       if (isStackingRole(role)) {
         route = { page: "stacking", id: null, search: "", depot: depotFromRole(role) };
+      } else if (role === "stock_opname") {
+        route = { page: "stockOpname", id: null, search: "", depot: "DWI" };
       } else {
         route = { page: "equipment", id: null, search: "", depot: "DWI" };
       }
@@ -1136,6 +1219,292 @@
       return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
     }
 
+
+    function stockOpnameDepotTabs(active) {
+      const activeKey = normalizeDepot(active || "DWI");
+      return `<div class="tabs">${["DWI", "KCN"].map(dep => {
+        const activeClass = activeKey === dep ? "active" : "";
+        return `<button class="tab-btn ${activeClass}" onclick="go('stockOpname', null, '${dep}')">${dep}</button>`;
+      }).join("")}</div>`;
+    }
+
+    function renderStockOpname() {
+      const depot = normalizeDepot(route.depot || "DWI");
+      const stock = getOpnameStock(depot).filter(row => matchesSearch(row.container));
+      const missing = getOpnameMissing(depot).filter(row => !route.search || norm(row.container).includes(norm(route.search)) || norm(row.customer).includes(norm(route.search)));
+      const checkedCount = stock.filter(row => state.opnameChecks[opnameKey(row)]).length;
+      layout(
+        "SBS - STOCK OPNAME",
+        `Stock Opname - ${depot}`,
+        `<button class="btn green small" onclick="downloadOpnameExcel()">Download Excel</button><button class="btn red small" onclick="logout()">Logout</button>`,
+        `
+          ${stockOpnameDepotTabs(depot)}
+          ${syncBanner()}
+          <div class="opname-panel">
+            <div class="opname-grid">
+              <div class="stat-card"><b>${stock.length}</b><span>Stock import ${depot}</span></div>
+              <div class="stat-card"><b>${checkedCount}</b><span>Sudah checklist</span></div>
+              <div class="stat-card"><b>${missing.length}</b><span>Koreksi / tidak ada di stock</span></div>
+            </div>
+            <div class="toolbar">
+              ${searchInput("Search No. Container / Customer")}
+              <button class="btn blue small" onclick="document.getElementById('opnameImportFile').click()">Import Excel Sistem</button>
+              <button class="btn yellow small" onclick="openMissingOpnameModal()">Input Container Tidak Ada</button>
+              <input id="opnameImportFile" type="file" accept=".xlsx,.xls" style="display:none" onchange="handleStockOpnameImport(this.files?.[0])" />
+            </div>
+            <div class="muted-small">Import file sistem akan mengganti data stock opname untuk depot <b>${depot}</b> saja. Format sample: Owner, Cont, Size, Type, Act IN, Dtm IN, Location, Remark IN.</div>
+          </div>
+
+          <div class="stock-table-wrap">
+            <table class="stock-table">
+              <thead><tr><th>No</th><th>Check</th><th>Date IN</th><th>Container</th><th>Customer</th><th>Depot</th><th>Location</th><th>Remark</th></tr></thead>
+              <tbody>
+                ${stock.length ? stock.map((row, index) => opnameStockRow(row, index)).join("") : `<tr><td colspan="8">Belum ada data stock opname untuk ${depot}. Silakan import Excel sistem.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="opname-missing">
+            <h3 style="color:var(--navy);margin:18px 0 10px">Koreksi Container Tidak Ada di Stock</h3>
+            <div class="stock-table-wrap">
+              <table class="stock-table">
+                <thead><tr><th>No</th><th>Date</th><th>Container</th><th>Customer</th><th>Depot</th><th>Note</th><th>Action</th></tr></thead>
+                <tbody>
+                  ${missing.length ? missing.map((row, index) => opnameMissingRow(row, index)).join("") : `<tr><td colspan="7">Belum ada koreksi manual.</td></tr>`}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `
+      );
+    }
+
+    function opnameStockRow(row, index) {
+      const key = opnameKey(row);
+      const checked = state.opnameChecks[key] ? "checked" : "";
+      return `<tr>
+        <td>${index + 1}</td>
+        <td><input class="opname-check" type="checkbox" ${checked} onchange="toggleOpnameCheck('${esc(key)}', this.checked)" /></td>
+        <td>${esc(formatDate(row.dateIn || row.date))}</td>
+        <td><b>${esc(row.container || "-")}</b></td>
+        <td>${esc(row.customer || "-")}</td>
+        <td><span class="depot-badge">${esc(eventDepot(row))}</span></td>
+        <td>${esc(row.location || "-")}</td>
+        <td>${esc(row.remark || "-")}</td>
+      </tr>`;
+    }
+
+    function opnameMissingRow(row, index) {
+      return `<tr>
+        <td>${index + 1}</td>
+        <td>${esc(formatDate(row.createdAt))}</td>
+        <td><b>${esc(row.container || "-")}</b></td>
+        <td>${esc(row.customer || "-")}</td>
+        <td><span class="depot-badge">${esc(eventDepot(row))}</span></td>
+        <td>${esc(row.note || "-")}</td>
+        <td><button class="btn red small" onclick="deleteOpnameMissing('${esc(row.id)}')">Delete</button></td>
+      </tr>`;
+    }
+
+    function getOpnameStock(depot = "DWI") {
+      const filter = normalizeDepot(depot);
+      return (state.opnameStock || [])
+        .map(row => ({ ...row, depot: eventDepot(row), container: normalizeContainerText(row.container) }))
+        .filter(row => eventDepot(row) === filter && norm(row.container))
+        .sort((a,b) => norm(a.container).localeCompare(norm(b.container)));
+    }
+
+    function getOpnameMissing(depot = "DWI") {
+      const filter = normalizeDepot(depot);
+      return (state.opnameMissing || [])
+        .map(row => ({ ...row, depot: eventDepot(row), container: normalizeContainerText(row.container) }))
+        .filter(row => eventDepot(row) === filter && norm(row.container))
+        .sort((a,b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    }
+
+    function opnameKey(row) {
+      return `${eventDepot(row)}|${normalizeContainerText(row.container)}`;
+    }
+
+    function toggleOpnameCheck(key, checked) {
+      state.opnameChecks[key] = Boolean(checked);
+      persist();
+    }
+
+    async function handleStockOpnameImport(file) {
+      if (!file) return;
+      const depot = normalizeDepot(route.depot || "DWI");
+      if (!window.XLSX) {
+        return toast("Library Excel belum berhasil dimuat. Pastikan koneksi internet aktif lalu refresh website.");
+      }
+      if (!confirm(`Import file ini untuk stock opname ${depot}? Data import ${depot} sebelumnya akan diganti.`)) {
+        const input = document.getElementById("opnameImportFile");
+        if (input) input.value = "";
+        return;
+      }
+      try {
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: "" });
+        const mapped = rows.map(row => mapOpnameImportRow(row, depot, file.name)).filter(row => row.container);
+        if (!mapped.length) return toast("Tidak ada data container yang terbaca dari file import.");
+        state.opnameStock = [
+          ...(state.opnameStock || []).filter(row => eventDepot(row) !== depot),
+          ...mapped
+        ];
+        state.opnameChecks = Object.fromEntries(Object.entries(state.opnameChecks || {}).filter(([key]) => !key.startsWith(`${depot}|`)));
+        persist();
+        render();
+        toast(`Import stock opname ${depot} berhasil: ${mapped.length} container.`);
+        remoteSaveOpnameStock(depot, mapped, file.name).then(result => {
+          if (result.ok) toast(`Worksheet Stock Opname ${depot} berhasil diupdate.`);
+        });
+      } catch (error) {
+        console.error(error);
+        toast("Import Excel gagal. Pastikan format file sesuai.");
+      } finally {
+        const input = document.getElementById("opnameImportFile");
+        if (input) input.value = "";
+      }
+    }
+
+    function mapOpnameImportRow(row, depot, sourceFile) {
+      const get = (...names) => {
+        const keys = Object.keys(row || {});
+        for (const name of names) {
+          const found = keys.find(k => norm(k).replace(/[^A-Z0-9]/g, "") === norm(name).replace(/[^A-Z0-9]/g, ""));
+          if (found != null) return row[found];
+        }
+        return "";
+      };
+      const rawContainer = get("Cont", "Container", "No Container", "No. Container");
+      const dateValue = get("Dtm IN", "Date IN", "Date", "Tanggal");
+      return {
+        id: cryptoRandomId(),
+        depot,
+        customer: String(get("Owner", "Customer", "Cust") || "").trim().toUpperCase(),
+        container: normalizeContainerText(rawContainer),
+        dateIn: normalizeDateInputForOptional(dateValue),
+        size: String(get("Size") || "").trim(),
+        contType: String(get("Type") || "").trim(),
+        movement: String(get("Act IN", "Movement") || "").trim(),
+        location: String(get("Location", "Lokasi") || "").trim(),
+        remark: String(get("Remark IN", "Remark", "Keterangan") || "").trim(),
+        sourceFile: sourceFile || "",
+        importedAt: new Date().toISOString()
+      };
+    }
+
+    function normalizeDateInputForOptional(value) {
+      if (!value) return "";
+      if (value instanceof Date && Number.isFinite(value.getTime())) return value.toISOString();
+      const d = new Date(value);
+      return Number.isFinite(d.getTime()) ? d.toISOString() : String(value || "");
+    }
+
+    function openMissingOpnameModal() {
+      const depot = normalizeDepot(route.depot || "DWI");
+      document.getElementById("modalRoot").className = "modal-backdrop active";
+      document.getElementById("modalRoot").innerHTML = `
+        <div class="modal">
+          <h3>Input Container Tidak Ada di Stock</h3>
+          <p class="modal-text">Data ini hanya masuk koreksi stock opname dan tidak masuk ke stock container aktif.</p>
+          <select id="missingDepot" class="select" style="margin-bottom:8px">
+            <option value="DWI" ${depot === "DWI" ? "selected" : ""}>DWI</option>
+            <option value="KCN" ${depot === "KCN" ? "selected" : ""}>KCN</option>
+          </select>
+          <input id="missingContainer" class="input" type="text" placeholder="No. Container" style="margin-bottom:8px" />
+          <input id="missingCustomer" class="input" type="text" placeholder="Customer" style="margin-bottom:8px" />
+          <input id="missingNote" class="input" type="text" placeholder="Note / lokasi / keterangan" />
+          <button class="btn green full" onclick="saveMissingOpname()">Simpan Koreksi</button>
+          <button class="btn light full" onclick="closeModal()">Cancel</button>
+        </div>
+      `;
+      setTimeout(() => document.getElementById("missingContainer")?.focus(), 10);
+    }
+
+    function saveMissingOpname() {
+      const row = {
+        id: cryptoRandomId(),
+        depot: normalizeDepot(getVal("missingDepot")),
+        container: normalizeContainerText(getVal("missingContainer")),
+        customer: getVal("missingCustomer").toUpperCase(),
+        note: getVal("missingNote"),
+        createdAt: new Date().toISOString()
+      };
+      if (!row.container) return toast("No. Container wajib diisi.");
+      if (!row.customer) return toast("Customer wajib diisi.");
+      state.opnameMissing = [...(state.opnameMissing || []), row];
+      persist();
+      closeModal();
+      route = { page: "stockOpname", id: null, search: route.search || "", depot: row.depot };
+      render();
+      toast("Koreksi stock opname berhasil ditambahkan.");
+    }
+
+    function deleteOpnameMissing(id) {
+      state.opnameMissing = (state.opnameMissing || []).filter(row => row.id !== id);
+      persist();
+      render();
+      toast("Koreksi berhasil dihapus.");
+    }
+
+    function downloadOpnameExcel() {
+      const depot = normalizeDepot(route.depot || "DWI");
+      const stock = getOpnameStock(depot).filter(row => matchesSearch(row.container));
+      const missing = getOpnameMissing(depot).filter(row => !route.search || norm(row.container).includes(norm(route.search)) || norm(row.customer).includes(norm(route.search)));
+      const generatedAt = formatDate(new Date().toISOString());
+      const stockRows = stock.map((row, index) => [
+        index + 1,
+        state.opnameChecks[opnameKey(row)] ? "Checked" : "Not Checked",
+        formatDate(row.dateIn || row.date),
+        row.container || "",
+        row.customer || "",
+        eventDepot(row),
+        row.location || "",
+        row.remark || ""
+      ]);
+      const missingRows = missing.map((row, index) => [
+        index + 1,
+        formatDate(row.createdAt),
+        row.container || "",
+        row.customer || "",
+        eventDepot(row),
+        row.note || ""
+      ]);
+
+      const html = `
+        <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+        <head><meta charset="UTF-8"></head>
+        <body>
+          <table border="1">
+            <tr><th colspan="8" style="font-size:16pt;background:#111c4e;color:white;">Stock Opname ${excelEsc(depot)}</th></tr>
+            <tr><td colspan="8">Generated at: ${excelEsc(generatedAt)}</td></tr>
+            <tr style="background:#111c4e;color:white;font-weight:bold;"><th>No</th><th>Checklist</th><th>Date IN</th><th>Container</th><th>Customer</th><th>Depot</th><th>Location</th><th>Remark</th></tr>
+            ${stockRows.length ? stockRows.map(row => `<tr>${row.map(cell => `<td>${excelEsc(cell)}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="8">Tidak ada data stock opname.</td></tr>`}
+          </table>
+          <br>
+          <table border="1">
+            <tr><th colspan="6" style="font-size:14pt;background:#ffe000;color:#111c4e;">Koreksi Container Tidak Ada di Stock</th></tr>
+            <tr style="background:#111c4e;color:white;font-weight:bold;"><th>No</th><th>Date</th><th>Container</th><th>Customer</th><th>Depot</th><th>Note</th></tr>
+            ${missingRows.length ? missingRows.map(row => `<tr>${row.map(cell => `<td>${excelEsc(cell)}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="6">Tidak ada koreksi manual.</td></tr>`}
+          </table>
+        </body></html>`;
+
+      const blob = new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" });
+      const fileName = `Stock_Opname_${depot}_${fileDateStamp()}.xls`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast(`Stock opname berhasil didownload: ${fileName}`);
+    }
+
     function renderEquipment() {
       const depot = normalizeDepot(route.depot || "DWI");
       const pending = getPendingEvents(depot).filter(ev => matchesSearch(ev.container));
@@ -1179,10 +1548,64 @@
 
     function openValidate(eventId) {
       validatingEventId = eventId;
+      showCustomerCheckModal();
+    }
+
+    function showCustomerCheckModal() {
+      const ev = state.events.find(e => e.id === validatingEventId);
+      if (!ev) return toast("Task tidak ditemukan.");
+      document.getElementById("modalRoot").className = "modal-backdrop active";
+      document.getElementById("modalRoot").innerHTML = `
+        <div class="modal">
+          <h3>Apakah customer sudah sesuai?</h3>
+          <p class="modal-text">Container: <b>${esc(ev.container)}</b><br>Customer saat ini:</p>
+          <div class="confirm-number">${esc(ev.customer || "-")}</div>
+          <div class="modal-actions">
+            <button class="btn green" onclick="showStdsConfirmModal()">Sudah Sesuai</button>
+            <button class="btn yellow" onclick="showCustomerCorrectionModal()">Koreksi Customer</button>
+            <button class="btn light" onclick="openDeleteTask(validatingEventId)">Delete Task</button>
+            <button class="btn red" onclick="closeModal()">Cancel</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function showCustomerCorrectionModal() {
+      const ev = state.events.find(e => e.id === validatingEventId);
+      if (!ev) return toast("Task tidak ditemukan.");
+      document.getElementById("modalRoot").className = "modal-backdrop active";
+      document.getElementById("modalRoot").innerHTML = `
+        <div class="modal">
+          <h3>Koreksi Customer</h3>
+          <p class="modal-text">Input customer yang sesuai untuk container <b>${esc(ev.container)}</b>.</p>
+          <input id="customerCorrection" class="input" type="text" placeholder="Input customer yang sesuai" value="${esc(ev.customer || "")}" onkeydown="if(event.key==='Enter') applyCustomerCorrection()" />
+          <button id="customerCorrectionBtn" class="btn green full" onclick="applyCustomerCorrection()">Simpan Koreksi</button>
+          <button class="btn light full" onclick="showCustomerCheckModal()">Back</button>
+        </div>
+      `;
+      setTimeout(() => document.getElementById("customerCorrection")?.focus(), 10);
+    }
+
+    function applyCustomerCorrection() {
+      const ev = state.events.find(e => e.id === validatingEventId);
+      if (!ev) return toast("Task tidak ditemukan.");
+      const corrected = getVal("customerCorrection").toUpperCase();
+      if (!corrected) return toast("Customer koreksi wajib diisi.");
+      ev.customer = corrected;
+      ev.updatedAt = new Date().toISOString();
+      persist();
+      toast("Customer sudah dikoreksi. Lanjut validasi STDS.");
+      showStdsConfirmModal();
+    }
+
+    function showStdsConfirmModal() {
+      const ev = state.events.find(e => e.id === validatingEventId);
+      if (!ev) return toast("Task tidak ditemukan.");
       document.getElementById("modalRoot").className = "modal-backdrop active";
       document.getElementById("modalRoot").innerHTML = `
         <div class="modal">
           <h3>Apakah sudah diinput ke dalam STDS?</h3>
+          <p class="modal-text">Container: <b>${esc(ev.container)}</b><br>Customer: <b>${esc(ev.customer || "-")}</b></p>
           <div class="modal-actions">
             <button class="btn green" onclick="showEquipmentNameModal()">Sudah</button>
             <button class="btn red" onclick="closeModal()">Belum</button>
@@ -1679,6 +2102,7 @@
     }
 
     function getVal(id) { return (document.getElementById(id)?.value || "").trim(); }
+    function normalizeContainerText(value) { return String(value || "").trim().toUpperCase().replace(/\s+/g, ""); }
     function norm(value) { return String(value || "").trim().toUpperCase(); }
     function esc(value) {
       return String(value ?? "").replace(/[&<>'"]/g, ch => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" }[ch]));
