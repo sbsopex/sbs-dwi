@@ -722,6 +722,12 @@
           if (Array.isArray(data.opnameStock)) {
             state.opnameStock = data.opnameStock.map(row => ({ ...row, depot: eventDepot(row) }));
           }
+          if (Array.isArray(data.opnameMissing)) {
+            state.opnameMissing = data.opnameMissing.map(row => ({ ...row, depot: eventDepot(row) }));
+          }
+          if (data.opnameChecks && typeof data.opnameChecks === "object") {
+            state.opnameChecks = data.opnameChecks;
+          }
           persist();
           render();
           toast("Data berhasil dimuat dari Spreadsheet.");
@@ -790,6 +796,72 @@
       } catch (error) {
         console.warn("Remote opname stock save failed", error);
         toast("Stock opname tersimpan lokal, namun belum tersimpan ke worksheet. Cek Apps Script terbaru.");
+        return { ok: false, error };
+      }
+    }
+
+    async function remoteSaveOpnameMissing(row) {
+      if (!CONFIG.APPS_SCRIPT_URL) return { ok: false, localOnly: true };
+      try {
+        const res = await fetch(CONFIG.APPS_SCRIPT_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({ action: "saveOpnameMissing", row, sheetId: CONFIG.SHEET_ID })
+        });
+        const data = await res.json();
+        if (!data?.ok) throw new Error(data?.message || "Save koreksi gagal");
+        if (Array.isArray(data.opnameMissing)) {
+          state.opnameMissing = data.opnameMissing.map(row => ({ ...row, depot: eventDepot(row) }));
+          persist();
+        }
+        return { ok: true, data };
+      } catch (error) {
+        console.warn("Remote opname missing save failed", error);
+        toast("Koreksi tersimpan lokal, namun belum tersimpan ke worksheet. Cek Apps Script terbaru.");
+        return { ok: false, error };
+      }
+    }
+
+    async function remoteDeleteOpnameMissing(id) {
+      if (!CONFIG.APPS_SCRIPT_URL) return { ok: false, localOnly: true };
+      try {
+        const res = await fetch(CONFIG.APPS_SCRIPT_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({ action: "deleteOpnameMissing", id, sheetId: CONFIG.SHEET_ID })
+        });
+        const data = await res.json();
+        if (!data?.ok) throw new Error(data?.message || "Delete koreksi gagal");
+        if (Array.isArray(data.opnameMissing)) {
+          state.opnameMissing = data.opnameMissing.map(row => ({ ...row, depot: eventDepot(row) }));
+          persist();
+        }
+        return { ok: true, data };
+      } catch (error) {
+        console.warn("Remote opname missing delete failed", error);
+        toast("Koreksi terhapus lokal, namun belum terhapus dari worksheet. Cek Apps Script terbaru.");
+        return { ok: false, error };
+      }
+    }
+
+    async function remoteSaveOpnameCheck(key, checked) {
+      if (!CONFIG.APPS_SCRIPT_URL) return { ok: false, localOnly: true };
+      try {
+        const res = await fetch(CONFIG.APPS_SCRIPT_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({ action: "saveOpnameCheck", key, checked, sheetId: CONFIG.SHEET_ID })
+        });
+        const data = await res.json();
+        if (!data?.ok) throw new Error(data?.message || "Save checklist gagal");
+        if (data.opnameChecks && typeof data.opnameChecks === "object") {
+          state.opnameChecks = data.opnameChecks;
+          persist();
+        }
+        return { ok: true, data };
+      } catch (error) {
+        console.warn("Remote opname check save failed", error);
+        toast("Checklist tersimpan lokal, namun belum tersimpan ke worksheet. Cek Apps Script terbaru.");
         return { ok: false, error };
       }
     }
@@ -1236,7 +1308,7 @@
       layout(
         "SBS - STOCK OPNAME",
         `Stock Opname - ${depot}`,
-        `<button class="btn green small" onclick="downloadOpnameExcel()">Download Excel</button><button class="btn red small" onclick="logout()">Logout</button>`,
+        `<button class="btn blue small" onclick="remoteLoadIfConfigured()">Refresh Data</button><button class="btn green small" onclick="downloadOpnameExcel()">Download Excel</button><button class="btn red small" onclick="logout()">Logout</button>`,
         `
           ${stockOpnameDepotTabs(depot)}
           ${syncBanner()}
@@ -1252,7 +1324,7 @@
               <button class="btn yellow small" onclick="openMissingOpnameModal()">Input Container Tidak Ada</button>
               <input id="opnameImportFile" type="file" accept=".xlsx,.xls" style="display:none" onchange="handleStockOpnameImport(this.files?.[0])" />
             </div>
-            <div class="muted-small">Import file sistem akan mengganti data stock opname untuk depot <b>${depot}</b> saja. Format sample: Owner, Cont, Size, Type, Act IN, Dtm IN, Location, Remark IN.</div>
+            <div class="muted-small">Import file sistem akan mengganti data stock opname untuk depot <b>${depot}</b> saja dan tersimpan ke worksheet agar bisa dibuka dari HP lain. Format sample: Owner, Cont, Size, Type, Act IN, Dtm IN, Location, Remark IN.</div>
           </div>
 
           <div class="stock-table-wrap">
@@ -1329,6 +1401,9 @@
     function toggleOpnameCheck(key, checked) {
       state.opnameChecks[key] = Boolean(checked);
       persist();
+      remoteSaveOpnameCheck(key, Boolean(checked)).then(result => {
+        if (result.ok) toast("Checklist stock opname tersimpan ke worksheet.");
+      });
     }
 
     async function handleStockOpnameImport(file) {
@@ -1441,13 +1516,20 @@
       route = { page: "stockOpname", id: null, search: route.search || "", depot: row.depot };
       render();
       toast("Koreksi stock opname berhasil ditambahkan.");
+      remoteSaveOpnameMissing(row).then(result => {
+        if (result.ok) toast("Koreksi stock opname tersimpan ke worksheet.");
+      });
     }
 
     function deleteOpnameMissing(id) {
+      if (!confirm("Hapus koreksi stock opname ini dari worksheet?")) return;
       state.opnameMissing = (state.opnameMissing || []).filter(row => row.id !== id);
       persist();
       render();
       toast("Koreksi berhasil dihapus.");
+      remoteDeleteOpnameMissing(id).then(result => {
+        if (result.ok) toast("Koreksi berhasil dihapus dari worksheet.");
+      });
     }
 
     function downloadOpnameExcel() {
