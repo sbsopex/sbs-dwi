@@ -295,6 +295,21 @@
     .driver-grid { display: grid; grid-template-columns: 84px 1fr; gap: 8px; align-items: center; }
     .driver-grid span { font-size: 12px; color: var(--navy); font-weight: 800; }
 
+    .location-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .location-grid .select { padding: 11px 10px; }
+    .location-grid small {
+      display: block;
+      color: var(--navy);
+      font-weight: 800;
+      font-size: 11px;
+      margin-bottom: 4px;
+    }
+
     .preview-box {
       background: #fff;
       border: 1px solid var(--line);
@@ -546,6 +561,7 @@
       .card-meta { grid-template-columns: 1fr; }
       .content { padding: 14px; }
       .opname-grid { grid-template-columns: 1fr; }
+      .location-grid { grid-template-columns: 1fr; }
       .task-actions { justify-items: start; }
     }
   </style>
@@ -574,7 +590,7 @@
       DRIVE_FOLDER_URL: "https://drive.google.com/drive/folders/1FZx3DGaK2Mdfyf3N_cj11zhrMSnhk9wU?usp=drive_link",
       SHEET_ID: "15A_Qv5Q-z08t6RJGk-MCmFCBGkcinEAhBFJXmevN7fY",
       DRIVE_FOLDER_ID: "1FZx3DGaK2Mdfyf3N_cj11zhrMSnhk9wU",
-      APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbwlMB13NeI5_45xCVx2QKNU4xl_cdQmxRi7sd6aUSNPRLJ1k7r9BTqOET6unmK7unNKEQ/exec", // isi contoh: https://script.google.com/macros/s/AKfycbxxxx/exec
+      APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbz1aknMLFceng5K9bJDosGNbvIGvbVG96R5cNdPWLuCTsXVAa6390gq3NKst5O9dJUOMw/exec", // isi contoh: https://script.google.com/macros/s/AKfycbxxxx/exec
       HISTORY_DAYS: 30,
       PASSWORDS: {
         stackdwi: "stacking_dwi",
@@ -971,6 +987,7 @@
             <div><b>Customer</b>: ${esc(ev.customer || "-")}</div>
             <div><b>Depot</b>: <span class="depot-badge">${eventDepot(ev)}</span></div>
             <div><b>Stacking</b>: ${esc(ev.stacking || "-")}</div>
+            <div><b>Lokasi</b>: ${esc(locationText(ev))}</div>
             <div><b>Date</b>: ${formatDate(ev.date)}</div>
             <div><b>Movement</b>: ${esc(ev.movement || "IM")}</div>
             <div><b>Driver</b>: ${esc(driverInfo(ev))}</div>
@@ -1007,6 +1024,7 @@
             </div>
             ${selectField("movement", "MOVEMENT", ["IM-FULL","IM-EMPTY"], "IM")}
             ${textField("stacking", "STACKING", "Input free text", true)}
+            ${locationField()}
             <div class="field">
               <label>PHOTO</label>
               <input id="photo" class="input" type="file" accept="image/*" capture="environment" onchange="handlePhoto(this.files?.[0])" />
@@ -1044,7 +1062,7 @@
           <h3>Apakah data container sudah sesuai?</h3>
           <p class="modal-text">Pastikan nomor container dan depot sudah benar sebelum submit.</p>
           <div class="confirm-number">${esc(payload.container)}</div>
-          <p class="modal-text"><b>Depot:</b> ${esc(payload.depot)}</p>
+          <p class="modal-text"><b>Depot:</b> ${esc(payload.depot)}<br/><b>Lokasi:</b> ${esc(payload.location || "-")}</p>
           <div class="modal-actions">
             <button id="confirmSubmitInBtn" class="btn green" onclick="confirmContainerInSubmit()">Ya, Submit</button>
             <button class="btn light" onclick="closeModal()">Cek Ulang / Revisi</button>
@@ -1103,12 +1121,14 @@
                   ${infoLine("No. Container", ev.container)}
                   ${infoLine("Customer", ev.customer)}
                   ${infoLine("Depot", depot)}
+                  ${infoLine("Lokasi", locationText(ev))}
                   ${infoLine("Info Driver", driverInfo(ev))}
                   ${infoLine("Stacking IN", ev.stacking)}
                   ${infoLine("Equipment IN", ev.equipmentName || "Pending Validate")}
                 </div>
                 <div class="info-actions">
                   <button class="btn red" onclick="go('stacking')">BACK</button>
+                  <button class="btn blue" onclick="openUpdateLocationModal('${ev.id}')">UPDATE LOKASI</button>
                   <button class="btn green" onclick="go('out', '${ev.id}')">OUT</button>
                 </div>
               </div>
@@ -1147,6 +1167,7 @@
             </div>
             ${selectField("movement", "MOVEMENT", ["RP-FULL", "RP-EMPTY"], "RP")}
             ${textField("stacking", "STACKING", "Input free text", true)}
+            ${locationField(inEv)}
             <div class="field">
               <label>PHOTO</label>
               <input id="photo" class="input" type="file" accept="image/*" capture="environment" onchange="handlePhoto(this.files?.[0])" />
@@ -1617,6 +1638,7 @@
             <div><b>Customer</b>: ${esc(ev.customer || "-")}</div>
             <div><b>Depot</b>: <span class="depot-badge">${eventDepot(ev)}</span></div>
             <div><b>Stacking</b>: ${esc(ev.stacking || "-")}</div>
+            <div><b>Lokasi</b>: ${esc(locationText(ev))}</div>
             <div><b>Movement</b>: ${esc(ev.movement || "-")}</div>
             <div><b>Driver Information</b>: ${esc(driverInfo(ev))}</div>
           </div>
@@ -1795,6 +1817,7 @@
 
     function closeModal() {
       validatingEventId = null;
+      locationUpdateEventId = null;
       pendingContainerPayload = null;
       const root = document.getElementById("modalRoot");
       root.className = "modal-backdrop";
@@ -1847,6 +1870,7 @@
                   ${infoLine("No. Container", item.container)}
                   ${infoLine("Customer", inEv?.customer || "-")}
                   ${infoLine("Depot", item.depot)}
+                  ${infoLine("Lokasi IN", locationText(inEv))}
                   ${infoLine("Info Driver", driverInfo(inEv))}
                   ${infoLine("Stacking IN", inEv?.stacking || "-")}
                   ${infoLine("Equipment IN", inEv?.equipmentName || "-")}
@@ -1856,6 +1880,7 @@
                   ${infoLine("No. Container", item.container)}
                   ${infoLine("Customer", outEv?.customer || "-")}
                   ${infoLine("Depot", item.depot)}
+                  ${infoLine("Lokasi OUT", locationText(outEv))}
                   ${infoLine("Info Driver", driverInfo(outEv))}
                   ${infoLine("Stacking OUT", outEv?.stacking || "-")}
                   ${infoLine("Equipment OUT", outEv?.equipmentName || "-")}
@@ -1889,6 +1914,10 @@
         driverPhone: getVal("driverPhone"),
         movement,
         stacking: getVal("stacking"),
+        locationArea: getVal("locationArea"),
+        locationBay: getVal("locationBay"),
+        locationRow: getVal("locationRow"),
+        location: getLocationFromForm(),
         photoDataUrl: currentPhoto?.dataUrl || "",
         photoName: buildPhotoName(container, movement, date),
         photoLink: "",
@@ -2045,6 +2074,83 @@
       const selected = getVal("customer");
       if (isOtherCustomerValue(selected)) return getVal("customerManual").toUpperCase();
       return selected;
+    }
+
+    function locationField(source = {}) {
+      const parts = parseLocationParts(source);
+      const areaOptions = ["T7", "T8", "T9", "T10"];
+      const bayOptions = Array.from({ length: 30 }, (_, i) => String(i + 1));
+      const rowOptions = Array.from({ length: 8 }, (_, i) => String(i + 1));
+      const opt = (value, selected) => `<option value="${esc(value)}" ${String(value) === String(selected) ? "selected" : ""}>${esc(value)}</option>`;
+      return `
+        <div class="field">
+          <label>LOKASI CONTAINER</label>
+          <div class="location-grid">
+            <div><small>Lokasi</small><select id="locationArea" class="select" required>${areaOptions.map(v => opt(v, parts.area || "T7")).join("")}</select></div>
+            <div><small>Bay</small><select id="locationBay" class="select" required>${bayOptions.map(v => opt(v, parts.bay || "1")).join("")}</select></div>
+            <div><small>Row</small><select id="locationRow" class="select" required>${rowOptions.map(v => opt(v, parts.row || "1")).join("")}</select></div>
+          </div>
+          <div class="hint" style="margin-top:8px">Format tersimpan: Lokasi|Bay|Row, contoh T7|1|1.</div>
+        </div>`;
+    }
+
+    function parseLocationParts(source = {}) {
+      const existing = String(source.location || "").split("|");
+      return {
+        area: source.locationArea || existing[0] || "T7",
+        bay: source.locationBay || existing[1] || "1",
+        row: source.locationRow || existing[2] || "1"
+      };
+    }
+
+    function getLocationFromForm() {
+      const area = getVal("locationArea");
+      const bay = getVal("locationBay");
+      const row = getVal("locationRow");
+      return area && bay && row ? `${area}|${bay}|${row}` : "";
+    }
+
+    function locationText(ev) {
+      if (!ev) return "-";
+      if (ev.location) return ev.location;
+      if (ev.locationArea && ev.locationBay && ev.locationRow) return `${ev.locationArea}|${ev.locationBay}|${ev.locationRow}`;
+      return "-";
+    }
+
+    let locationUpdateEventId = null;
+
+    function openUpdateLocationModal(eventId) {
+      const ev = state.events.find(e => e.id === eventId);
+      if (!ev) return toast("Data container tidak ditemukan.");
+      locationUpdateEventId = eventId;
+      document.getElementById("modalRoot").className = "modal-backdrop active";
+      document.getElementById("modalRoot").innerHTML = `
+        <div class="modal">
+          <h3>Update Lokasi Container</h3>
+          <p class="modal-text"><b>${esc(ev.container)}</b><br/>Lokasi saat ini: ${esc(locationText(ev))}</p>
+          ${locationField(ev)}
+          <div class="modal-actions">
+            <button id="locationUpdateBtn" class="btn green" onclick="submitLocationUpdate()">SAVE LOCATION</button>
+            <button class="btn light" onclick="closeModal()">Cancel</button>
+          </div>
+        </div>`;
+    }
+
+    function submitLocationUpdate() {
+      const ev = state.events.find(e => e.id === locationUpdateEventId);
+      if (!ev) return closeModal();
+      ev.locationArea = getVal("locationArea");
+      ev.locationBay = getVal("locationBay");
+      ev.locationRow = getVal("locationRow");
+      ev.location = getLocationFromForm();
+      ev.updatedAt = new Date().toISOString();
+      persist();
+      const depot = eventDepot(ev);
+      closeModal();
+      route = { page: "info", id: ev.id, search: route.search || "", depot };
+      render();
+      toast(`Lokasi ${ev.container} berhasil diupdate: ${ev.location}`);
+      remoteSaveEvent(ev).then(() => { if (route.page === "info" && route.id === ev.id) render(); });
     }
 
     function selectField(id, label, options, selected = "") {
